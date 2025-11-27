@@ -160,7 +160,11 @@ class Bank:
         update_loan_firms(self, firms: list['ConsumptionFirm | CapitalFirm']) -> None
     """
     
+<<<<<<< HEAD
     def __init__ (self, id: int, params: dict) -> None:
+=======
+    def __init__(self, id: int, params: dict) -> None:
+>>>>>>> 199b339 (first commit)
         """
         Bank class initialisation.
         
@@ -697,7 +701,11 @@ class Household:
         self.steps:               int   = params['simulation']['steps']
         self.time:                int   = (params['simulation']['years'] + params['simulation']['start'])*self.steps + 1
         self.dt:                  float = 1/self.steps
+<<<<<<< HEAD
         self.mpc_deposits:        float = params['household']['mpc_deposits']
+=======
+        self.mpc_deposits:        float = params['household']['mpc_deposits']*self.dt
+>>>>>>> 199b339 (first commit)
         self.num_firms:           int   = params['household']['num_firms']
         self.num_cfirms:          int   = params['household']['num_cfirms']
         self.deposit_interest:    float = params['bank']['deposit_interest']*self.dt
@@ -1321,11 +1329,20 @@ class Firm(ABC):
             t : int
                 time period
         """
+<<<<<<< HEAD
         # update prices
         if self.desired_inventories[t-1] >= self.inventories[t-1]:
             self.price[t] = self.price[t-1]*(1 + self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1])
         else:
             self.price[t] = self.price[t-1]*(1 - self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1])
+=======
+        unit_cost = (self.wage_bill[t])/self.output[t]
+        # update prices
+        if self.desired_inventories[t-1] >= self.inventories[t-1]:
+            self.price[t] = max(unit_cost*(1 + 0.2), self.price[t-1]*(1 + self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1]))
+        else:
+            self.price[t] = max(unit_cost*(1 + 0.2), self.price[t-1]*(1 - self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1]))
+>>>>>>> 199b339 (first commit)
 
     def determine_profits(self, t: int) -> None:
         """

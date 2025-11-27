@@ -1,0 +1,510 @@
+import yaml
+import numpy as np
+import pandas as pd
+import powerlaw as pl
+from scipy import stats
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection
+import statsmodels.api as sm
+from statsmodels.graphics import tsaplots
+from numba import njit, prange
+
+def load_parameters(filename: str):
+    """
+    Load YAML file as dictionary.
+    
+    Parameters
+    ----------
+        filename : str
+            name of YAML file to load
+    
+    Returns
+    -------
+        file_dict : dict
+            YAML file loaded as dictionary 
+    """
+    with open(filename, 'r') as file:
+        file_dict = yaml.safe_load(file)
+    return file_dict
+
+def logscale_ticks(low: float, high: float, num: int) -> np.ndarray:
+    """
+    Get ticks for either x or y axis from data, rounded to first digit spaced by num in log 10.
+    
+    Parameters
+    ----------
+        series : pd.Series
+            time series
+            
+        num : int 
+            number of ticks to return
+    
+    Returns
+    -------
+        ticks : numpy array
+            axis ticks spaced by num in log 10
+    """
+    log_arr = np.logspace(np.log10(low),np.log10(high), num)
+    lengths = np.vectorize(len)(np.char.mod('%d', log_arr))
+    factor = 10 ** (lengths - 1)
+    round_log_arr = np.int64(np.round(log_arr.astype(int) / factor) * factor)
+    return round_log_arr
+
+def plot_autocorrelation(simulated: pd.DataFrame, empirical: pd.DataFrame, feature: str, figsize: tuple, fontsize: int, lags: int, lamda: int, savefig: str):
+    """
+    Plots the autocorrelation function (ACF) of the simulated time-series with a 95% confidence interval (CI), calculated over all simulations,
+    and also plots the empirical time-series ACF for a given feature vector of the two time-series for a given number of lags.
+    
+    Parameters
+    ----------
+        simulated : pandas.DataFrame
+            model simulated time-series with s simulations
+        
+        empirical : pandas.DataFrame
+            single empirical time-series
+        
+        feature : str
+            name of column in both simulated and empirical DataFrame
+        
+        figsize : tuple (int, int) 
+            size of figure (x-axis, y-axis)
+            
+        fontsize : int
+            fontsize of legend and ticks
+        
+        lags: int
+            number of autocorrelation lags
+        
+        lamda : int
+            Hodrick-Prescott filter lambda parameter (quarterly => lambda=1600)
+            
+        savefig : str
+            path and figure name 
+    """
+    # array to store autocorrelation for each simulation
+    sim_autocorr = np.zeros(shape=(max(simulated['simulation']) + 1, lags + 1))
+    # calculate autocorrelation for each simulation
+    for s in simulated['simulation'].unique():
+        temp_simulated = simulated.loc[simulated['simulation'] == s]
+        # decompose trend and cycle component using Hodrick-Prescott filter
+        sim_cycle, sim_trend = sm.tsa.filters.hpfilter(temp_simulated[feature], lamda)
+        # autocorrelation 
+        sim_autocorr[s,:] = sm.tsa.acf(sim_cycle, nlags=lags)
+    # median autocorrelation
+    sim_autocorr_median = np.quantile(sim_autocorr, 0.5, axis=0)
+    # upper 5% quantile
+    sim_autocorr_upper = np.quantile(sim_autocorr, 0.95, axis=0)
+    # lower 5% quantile
+    sim_autocorr_lower = np.quantile(sim_autocorr, 0.05, axis=0)
+    # decompose trend and cycle component of empirical time-series using Hodrick-Prescott filter
+    emp_cycle, emp_trend = sm.tsa.filters.hpfilter(empirical[feature], lamda)
+    # empirical autocorrelation
+    emp_autocorr = sm.tsa.acf(emp_cycle, nlags=lags)
+    # plot results
+    plt.figure(figsize=figsize)
+    # x values (lags)
+    x = np.arange(0, lags+1)
+    # plot empirical autocorrelation 
+    plt.plot(emp_autocorr, color='k', linestyle='--', linewidth=1, label='Empirical')
+    # plot simulated autocorrelation median
+    plt.plot(sim_autocorr_median, color='k', linewidth=1, label='Simulated')
+    # plot confidence interval
+    plt.fill_between(x, sim_autocorr_median, sim_autocorr_upper, color='grey', alpha=0.2, label='95% CI')
+    plt.fill_between(x, sim_autocorr_median, sim_autocorr_lower, color='grey', alpha=0.2)
+    # plot 0 line
+    plt.axhline(0, color='k')
+    # figure ticks
+    plt.yticks([1.00,0.75,0.50,0.25,0.00,-0.25,-0.50,-0.75,-1.00], ['1.00','0.75','0.50','0.25','0.00','–0.25','–0.50','–0.75','–1.00'], fontsize=fontsize)
+    plt.xticks([0,5,10,15,20], [0,5,10,15,20], fontsize=fontsize)
+    # legend
+    plt.legend(fontsize=fontsize, loc='upper right')
+    # save figure
+    plt.savefig(savefig, bbox_inches='tight')
+    # show figure
+    plt.show()
+
+def plot_cross_correlation(simulated: pd.DataFrame, empirical: pd.DataFrame, xfeature: str, yfeature: str, figsize: tuple, fontsize: int, lags: int, lamda: int, savefig: str):
+    """
+    Plots the cross correlation (xcorr) of the simulated time-series for feature xfeature and yfeature with a 95% confidence interval (CI), calculated over all simulations,
+    and also plots the empirical time-series xcorr for a given xfeature and yfeature vector, each for a given number of lags.
+    
+    Parameters
+    ----------
+        simulated : pandas.DataFrame
+            model simulated time-series with s simulations
+        
+        empirical : pandas.DataFrame
+            single empirical time-series
+        
+        xfeature : str
+            name of the x feature column in both simulated and empirical DataFrames
+        
+        yfeature : str
+            name of the y feature column in both simulated and empirical DataFrames
+        
+        figsize : tuple (int, int) 
+            size of figure (x-axis, y-axis)
+            
+        fontsize : int
+            fontsize of legend and ticks
+        
+        lags: int
+            number of correlation lags, in range (-lags, lags)
+        
+        lamda : int
+            Hodrick-Prescott filter lambda parameter (quarterly => lambda=1600)
+            
+        savefig : str
+            path and figure name 
+    """
+    # array to store autocorrelation for each simulation
+    sim_xcorr = np.zeros(shape=(max(simulated['simulation']) + 1, lags*2 + 1))
+    # calculate autocorrelation for each simulation
+    for s in simulated['simulation'].unique():
+        temp_simulated = simulated.loc[simulated['simulation'] == s]
+        # decompose trend and cycle component using Hodrick-Prescott filter
+        sim_xcycle, sim_xtrend = sm.tsa.filters.hpfilter(temp_simulated[xfeature], lamda)
+        sim_ycycle, sim_ytrend = sm.tsa.filters.hpfilter(temp_simulated[yfeature], lamda)
+        # autocorrelation
+        sim_xcorr[s,:] = plt.xcorr(sim_xcycle, sim_ycycle, maxlags=lags)[1]
+    # median autocorrelation
+    sim_xcorr_median = np.quantile(sim_xcorr, 0.5, axis=0)
+    # upper 5% quantile
+    sim_xcorr_upper = np.quantile(sim_xcorr, 0.95, axis=0)
+    # lower 5% quantile
+    sim_xcorr_lower = np.quantile(sim_xcorr, 0.05, axis=0)
+    # decompose trend and cycle component of empirical time-series using Hodrick-Prescott filter
+    emp_xcycle, emp_xtrend = sm.tsa.filters.hpfilter(empirical[xfeature], lamda)
+    emp_ycycle, emp_ytrend = sm.tsa.filters.hpfilter(empirical[yfeature], lamda)
+    # empirical autocorrelation
+    emp_xcorr = plt.xcorr(emp_xcycle, emp_ycycle, maxlags=lags)[1]
+    # clear figure
+    plt.clf()
+    # start figure
+    plt.figure(figsize=figsize)
+    # x values (lags)
+    x = np.arange(0, lags*2 + 1)
+    # plot empirical xcorr
+    plt.plot(emp_xcorr, color='k', linestyle='--', linewidth=1, label='Empirical')
+    # plot median simulated xcorr
+    plt.plot(sim_xcorr_median, color='k', linewidth=1, label='Simulated')
+    # plot confidence interval
+    plt.fill_between(x, sim_xcorr_median, sim_xcorr_upper, color='grey', alpha=0.2, label='95% CI')
+    plt.fill_between(x, sim_xcorr_median, sim_xcorr_lower, color='grey', alpha=0.2)
+    # plot 0 line
+    plt.axhline(0, color='k')
+    # figure ticks
+    plt.yticks([1.00,0.75,0.50,0.25,0.00,-0.25,-0.50,-0.75,-1.00], ['1.00','0.75','0.50','0.25','0.00','–0.25','–0.50','–0.75','–1.00'], fontsize=fontsize)
+    plt.xticks([0,int(0.5*lags),int(lags),int(1.5*lags),int(2*lags)], [f'–{lags}',f'–{int(0.5*lags)}',0,int(0.5*lags),lags], fontsize=fontsize)
+    # legend
+    plt.legend(fontsize=fontsize, loc='upper right')
+    # save figure
+    plt.savefig(savefig, bbox_inches='tight')
+    # show figure
+    plt.show()
+
+def plot_ccdf(data, figsize: tuple, fontsize: int, ylim: list, savefig: str, dp: int=0) -> None:
+    """
+    Plots the complementary cumulative distribution function (CCDF) for a given series 
+    and prints the power law exponent, cut-off value, and compares the distribution to a lognormal.
+    
+    Parameters
+    ----------
+        data : pd.Series or numpy array
+            series to plot CCDF
+            
+        figsize : tuple (int, int) 
+            size of figure (x-axis, y-axis)
+            
+        fontsize : int
+            fontsize of legend and ticks
+            
+        savefig : str
+            path and figure name 
+        dp : int 
+            power law fit x minimum number decimal points
+    """
+    # power law fit results 
+    results = pl.Fit(data)
+    a, m = results.alpha, results.xmin
+    # complementary cdf 
+    plt.figure(figsize=figsize)
+    # x values 
+    x = np.sort(data)
+    # complementary cdf (ccdf)
+    cdf = np.arange(1,len(data)+1)/(len(data))
+    ccdf = 1 - cdf
+    plt.scatter(x, ccdf, color='skyblue', edgecolors='k', alpha=0.7, s=30, label='CCDF')
+    # power law fit
+    # => rescale to start fit from cut off
+    index = np.where(x == m)[0][0]
+    rescale = ccdf[index]
+    power_law_fit = np.where(x >= m, np.power((m)/x,a-1)*rescale, np.nan)
+    plt.plot(x, power_law_fit, color='limegreen', linewidth=3, label=r'PL ($\alpha$'f' = {round(a, 2)})')
+    # power law cut off (mF)
+    plt.axvline(m, color='k', linestyle=':', label=r'$m$'f' = {round(m, dp)}') # type: ignore
+    # lognormal distribution
+    estimates = stats.lognorm.fit(data)
+    cdf = stats.lognorm.cdf(x, estimates[0], estimates[1], estimates[2])
+    plt.plot(x, 1 - cdf, color='r', linestyle='--', linewidth=2, label='Log-Normal')
+    # log-log axis
+    plt.loglog()
+    # legend
+    plt.legend(loc='lower left', fontsize=fontsize)
+    # tick size
+    plt.yticks(fontsize=fontsize)
+    plt.xticks(fontsize=fontsize)
+    # y limit 
+    plt.ylim(ylim)
+    # save figure
+    plt.savefig(savefig, bbox_inches='tight')
+    print(f'Power law exponent = {a}')
+    print(f'Power law minimum = {m}')
+    print(f"Distribution compare = {results.distribution_compare('power_law', 'lognormal')}\n")
+    
+# njit function to calculate bank debtrank
+@njit(parallel=True, cache=True)
+def bank_debtrank(
+    W_banks: np.typing.NDArray[np.float64],        # shape (num_banks, num_firms) 
+    W_firms: np.typing.NDArray[np.float64],        # shape (num_firms, num_banks) 
+    bank_assets: np.typing.NDArray[np.float64],    # shape (num_banks,)
+    firm_assets: np.typing.NDArray[np.float64],    # shape (num_firms,)
+    max_iterations: int = 500,
+    epsilon: float = 1e-8
+) -> tuple:
+    """
+    Description
+    -----------
+    Function to calculate DebtRank if each bank when bankrupt for a bank-firm bipartitie credit network (Battiston et al, 2012; Aoyama et al, 2013).
+    
+    References
+    ----------
+    
+    Battiston, S., Puliga, M., Kaushik, R., Tasca, P., & Caldarelli, G. (2012). Debtrank: Too central to fail? 
+    financial networks, the fed and systemic risk. Scientific reports, 2(1), 541.
+        
+    Aoyama, H., Battiston, S., & Fujiwara, Y. (2013). DebtRank analysis of the Japanese credit network. 
+    Discussion papers, Research Institute of Economy, Trade and Industry (RIETI).
+    
+    Parameters
+    ----------
+        W_banks : NDArray[float64]
+            bank propagation matrix
+
+        W_firms: NDArray[float64]
+            firm propagation matrix
+        
+        bank_assets: NDArray[float64]
+            bank asset values
+        
+        firm_assets: NDArray[float64]
+            firm asset values
+        
+        max_iterations: int
+            maximum number of iterations per loop
+        
+        epsilon: float
+            convergence tolerance
+            
+    Returns
+    -------
+        (bank_dr, firm_dr) : tuple(NDArray[Float64], NDArray[float64])
+            a tuple of bank DebtRanks and firm DebtRanks when each bank becomes bankrupt
+    """
+    # number of banks
+    num_banks = bank_assets.shape[0]
+    # number of firms 
+    num_firms = firm_assets.shape[0]
+
+    # precompute total bank assets
+    total_bank_assets = 0.0
+    for b in range(num_banks):
+        total_bank_assets += bank_assets[b]
+
+    # precompute total firm assets
+    total_firm_assets = 0.0
+    for f in range(num_firms):
+        total_firm_assets += firm_assets[f]
+
+    # bank debtrank output array
+    bank_dr = np.zeros(num_banks, dtype=np.float64)
+    # firm debtrank output array
+    firm_dr = np.zeros(num_banks, dtype=np.float64)
+
+    # bank shocks (compute parallel for each bank i)
+    for i in prange(num_banks):
+        # bank distress
+        bank_distress = np.zeros(num_banks, dtype=np.float64)
+        # firm distress 
+        firm_distress = np.zeros(num_firms, dtype=np.float64)
+        # bank state: 0=U (undistressed), 1=D (distressed), and 2=I (inactive)
+        bank_state = np.zeros(num_banks, dtype=np.int8)
+        # firm state: 0=U (undistressed), 1=D (distressed), and 2=I (inactive)
+        firm_state = np.zeros(num_firms, dtype=np.int8)      # firm state
+
+        # bank i maximally distressed (bankrupt)
+        bank_distress[i] = 1.0
+        bank_state[i] = 1  # Distressed state (D)
+
+        # initialise previous sum for convergence test
+        prev_total = 1.0 
+
+        # propagate until convergence or max iter
+        for _ in range(max_iterations):
+            
+            ### 1) distressed banks (in set D) propagate to firms ###
+            
+            # update firm distress
+            for f in range(num_firms):
+                # new distress propagated to firms
+                firm_distress_propagation = 0.0
+                # dot product across banks (excluding distressed banks)
+                for b in range(num_banks):
+                    if bank_state[b] == 1:
+                        firm_distress_propagation += W_firms[f, b] * bank_distress[b]
+                # update distress (only if not already 1)
+                firm_distress[f] = firm_distress[f] + firm_distress_propagation
+                # can at 1
+                if firm_distress[f] > 1.0:
+                    firm_distress[f] = 1.0
+
+            # mark firms distressed (s=1 => D) 
+            for f in range(num_firms):
+                if firm_distress[f] > 0.0 and firm_state[f] == 0:
+                    firm_state[f] = 1
+
+            ### 2) distressed firms propagate to banks ###
+            
+            # update bank distress
+            for f in range(num_firms):
+                # new distress propagated to firms
+                bank_distress_propagation = 0.0
+                # dot product across banks (excluding distressed banks)
+                for b in range(num_banks):
+                    if bank_state[b] == 1:
+                        bank_distress_propagation += W_banks[f, b] * firm_distress[b]
+                # update distress
+                bank_distress[f] = bank_distress[f] + bank_distress_propagation
+                # can at 1
+                if bank_distress[f] > 1.0:
+                    bank_distress[f] = 1.0
+
+            # mark banks distressed (s=1 => D) 
+            for b in range(num_banks):
+                if bank_distress[b] > 0.0 and bank_state[b] == 0:
+                    bank_state[b] = 1
+
+            ### 3) nodes that were distressed (D) become inactive (I) ###
+            
+            # mark distressed banks as inactive 
+            for b in range(num_banks):
+                if bank_state[b] == 1:
+                    bank_state[b] = 2
+            
+            # mark distressed firms as inactive
+            for f in range(num_firms):
+                if firm_state[f] == 1:
+                    firm_state[f] = 2
+
+            # 4) convergence: compare sums
+            total = 0.0
+            for b in range(num_banks):
+                total += bank_distress[b]
+            for f in range(num_firms):
+                total += firm_distress[f]
+
+            if abs(total - prev_total) < epsilon:
+                break
+            prev_total = total
+
+        ### 5) calculate DebtRank for banks and firms
+        
+        # Compute bank layer DebtRank 
+        total_banks_assets_less_i = total_bank_assets - bank_assets[i]
+        # guard against zero denominator
+        if total_banks_assets_less_i == 0.0:
+            # if denominator is zero or negative, set bank_dr[i] to 0 to avoid division by zero
+            bank_dr[i] = 0.0
+        else:
+            total_bank_asset_loss_less_i = 0.0
+            for b in range(num_banks):
+                if b != i:
+                    total_bank_asset_loss_less_i += bank_distress[b] * bank_assets[b]
+            # bank DebtRank given bank i defaults
+            bank_dr[i] = total_bank_asset_loss_less_i / total_banks_assets_less_i
+
+        # compute firm layer DebtRank
+        # guard against zero denominator
+        if total_firm_assets == 0.0:
+            # if denominator is zero or negative, set firm_dr[i] to 0 to avoid division by zero
+            firm_dr[i] = 0.0
+        else:
+            total_firm_asset_loss = 0.0
+            for f in range(num_firms):
+                total_firm_asset_loss += firm_distress[f] * firm_assets[f]
+            # firm DebtRank given bank i defaults
+            firm_dr[i] = total_firm_asset_loss / total_firm_assets
+
+    # return bank and firm DebtRanks
+    return bank_dr, firm_dr
+
+
+@njit(cache=True)
+def expected_systemic_loss(
+    bank_dr: np.typing.NDArray[np.float64],
+    firm_dr: np.typing.NDArray[np.float64],
+    prob_default: np.typing.NDArray[np.float64],
+    bank_assets: np.typing.NDArray[np.float64],
+    firm_assets: np.typing.NDArray[np.float64]
+) -> float:
+    """
+    Description
+    -----------
+    Function to calculate the expected systemic loss (ESL) approximation from Polenga et al (2015) 
+    using DebtRank for a bipartite bank-firm credit network.
+    
+    References
+    ----------
+    Poledna, S., Molina-Borboa, J. L., Martínez-Jaramillo, S., Van Der Leij, M., & Thurner, S. (2015). 
+    The multi-layer network nature of systemic risk and its implications for the costs of financial crises. 
+    Journal of Financial Stability, 20, 70-81.
+    
+    Parameters
+    ----------
+        bank_dr : NDArray[float64]
+            bank DebtRank 
+            
+        firm_dr : NDArray[float64]
+            firm DebtRank
+            
+        prob_default : NDArray[float64]
+            probability of default for each bank
+            
+        bank_assets: NDArray[float64]
+            bank asset values
+        
+        firm_assets: NDArray[float64]
+            firm asset values
+            
+    Returns
+    -------
+        esl : float
+            Expected systemic loss approximation
+    """
+    # total monetary value of bank assets 
+    total_bank_assets = 0.0
+    for b in range(bank_assets.shape[0]):
+        total_bank_assets += bank_assets[b]
+        
+    # total monetary value of firms assets 
+    total_firm_assets = 0.0
+    for f in range(firm_assets.shape[0]):
+        total_firm_assets += firm_assets[f]
+
+    # expected systemic loss approximation (ESL)
+    esl = 0.0
+    for i in range(bank_dr.shape[0]):
+        esl += prob_default[i] * (bank_dr[i] * total_bank_assets + firm_dr[i] * total_firm_assets)
+
+    # return esl calculation
+    return esl
