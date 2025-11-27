@@ -7,7 +7,7 @@ def main():
     Run this file to run the main function which starts the macro ABM simulation.
     """
     # load model parameters
-    params = load_parameters('parameters.yml')
+    params = load_parameters('parameters.yaml')
     # create market object
     market = Market(params)
     # connect/create database
