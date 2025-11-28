@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.typing import NDArray
 from abc import ABC, abstractmethod
 
 class Bank:
@@ -160,11 +161,7 @@ class Bank:
         update_loan_firms(self, firms: list['ConsumptionFirm | CapitalFirm']) -> None
     """
     
-<<<<<<< HEAD
     def __init__ (self, id: int, params: dict) -> None:
-=======
-    def __init__(self, id: int, params: dict) -> None:
->>>>>>> 199b339 (first commit)
         """
         Bank class initialisation.
         
@@ -194,22 +191,22 @@ class Bank:
         self.loan_firms:                list[Firm | ConsumptionFirm | CapitalFirm] = []
         self.deposit_firms:             list[Firm | ConsumptionFirm | CapitalFirm] = []
         # Data 
-        self.profits:                   np.ndarray = np.zeros(shape=self.time)
-        self.loan_interest:             np.ndarray = np.zeros(shape=self.time)
-        self.equity:                    np.ndarray = np.zeros(shape=self.time)
-        self.deposits:                  np.ndarray = np.zeros(shape=self.time)
-        self.loans:                     np.ndarray = np.zeros(shape=self.time)
-        self.bad_loans:                 np.ndarray = np.zeros(shape=self.time)
-        self.expected_bad_loans:        np.ndarray = np.zeros(shape=self.time)
-        self.expected_bad_loans_ratio:  np.ndarray = np.zeros(shape=self.time)
-        self.reserves:                  np.ndarray = np.zeros(shape=self.time)
-        self.reserve_ratio:             np.ndarray = np.zeros(shape=self.time)
-        self.capital_ratio:             np.ndarray = np.zeros(shape=self.time)
-        self.min_capital_ratio:         np.ndarray = np.zeros(shape=self.time)
-        self.market_share:              np.ndarray = np.zeros(shape=self.time)
-        self.degree:                    np.ndarray = np.zeros(shape=self.time)
-        self.assets:                    np.ndarray = np.zeros(shape=self.time)
-        self.liabilities:               np.ndarray = np.zeros(shape=self.time)
+        self.profits:                   NDArray = np.zeros(shape=self.time)
+        self.loan_interest:             NDArray = np.zeros(shape=self.time)
+        self.equity:                    NDArray = np.zeros(shape=self.time)
+        self.deposits:                  NDArray = np.zeros(shape=self.time)
+        self.loans:                     NDArray = np.zeros(shape=self.time)
+        self.bad_loans:                 NDArray = np.zeros(shape=self.time)
+        self.expected_bad_loans:        NDArray = np.zeros(shape=self.time)
+        self.expected_bad_loans_ratio:  NDArray = np.zeros(shape=self.time)
+        self.reserves:                  NDArray = np.zeros(shape=self.time)
+        self.reserve_ratio:             NDArray = np.zeros(shape=self.time)
+        self.capital_ratio:             NDArray = np.zeros(shape=self.time)
+        self.min_capital_ratio:         NDArray = np.zeros(shape=self.time)
+        self.market_share:              NDArray = np.zeros(shape=self.time)
+        self.degree:                    NDArray = np.zeros(shape=self.time)
+        self.assets:                    NDArray = np.zeros(shape=self.time)
+        self.liabilities:               NDArray = np.zeros(shape=self.time)
         # Initial values
         self.loan_interest[0]           = params['bank']['loan_interest']
 
@@ -701,21 +698,17 @@ class Household:
         self.steps:               int   = params['simulation']['steps']
         self.time:                int   = (params['simulation']['years'] + params['simulation']['start'])*self.steps + 1
         self.dt:                  float = 1/self.steps
-<<<<<<< HEAD
-        self.mpc_deposits:        float = params['household']['mpc_deposits']
-=======
         self.mpc_deposits:        float = params['household']['mpc_deposits']*self.dt
->>>>>>> 199b339 (first commit)
         self.num_firms:           int   = params['household']['num_firms']
         self.num_cfirms:          int   = params['household']['num_cfirms']
         self.deposit_interest:    float = params['bank']['deposit_interest']*self.dt
         self.employed:            bool  = False
         # Data
-        self.wage:                np.ndarray = np.zeros(shape=self.time)
-        self.income:              np.ndarray = np.zeros(shape=self.time)
-        self.deposits:            np.ndarray = np.zeros(shape=self.time)
-        self.expenditure:         np.ndarray = np.zeros(shape=self.time)
-        self.desired_expenditure: np.ndarray = np.zeros(shape=self.time)
+        self.wage:                NDArray = np.zeros(shape=self.time)
+        self.income:              NDArray = np.zeros(shape=self.time)
+        self.deposits:            NDArray = np.zeros(shape=self.time)
+        self.expenditure:         NDArray = np.zeros(shape=self.time)
+        self.desired_expenditure: NDArray = np.zeros(shape=self.time)
         # Initial values
         self.wage[0]              = init_wage
         self.income[0]            = init_wage
@@ -1108,43 +1101,43 @@ class Firm(ABC):
         self.employees:                 list[Household] = []
         self.applications:              list[Household] = []
         # Timeseries Data   
-        self.productivity:              np.ndarray = np.zeros(shape=self.time)
-        self.productivity_growth:       np.ndarray = np.zeros(shape=self.time)
-        self.expected_productivity:     np.ndarray = np.zeros(shape=self.time)
-        self.output:                    np.ndarray = np.zeros(shape=self.time)
-        self.output_growth:             np.ndarray = np.zeros(shape=self.time)
-        self.desired_output:            np.ndarray = np.zeros(shape=self.time)
-        self.demand:                    np.ndarray = np.zeros(shape=self.time)
-        self.expected_demand:           np.ndarray = np.zeros(shape=self.time)
-        self.quantity:                  np.ndarray = np.zeros(shape=self.time)
-        self.inventories:               np.ndarray = np.zeros(shape=self.time)
-        self.desired_inventories:       np.ndarray = np.zeros(shape=self.time)
-        self.labour:                    np.ndarray = np.zeros(shape=self.time)
-        self.desired_labour:            np.ndarray = np.zeros(shape=self.time)
-        self.labour_demand:             np.ndarray = np.zeros(shape=self.time)
-        self.vacancies:                 np.ndarray = np.zeros(shape=self.time)
-        self.wage:                      np.ndarray = np.zeros(shape=self.time)
-        self.wage_bill:                 np.ndarray = np.zeros(shape=self.time)
-        self.price:                     np.ndarray = np.zeros(shape=self.time)
-        self.profits:                   np.ndarray = np.zeros(shape=self.time)
-        self.profit_share:              np.ndarray = np.zeros(shape=self.time)
-        self.equity:                    np.ndarray = np.zeros(shape=self.time)
-        self.deposits:                  np.ndarray = np.zeros(shape=self.time)
-        self.desired_loan:              np.ndarray = np.zeros(shape=self.time)
-        self.debt:                      np.ndarray = np.zeros(shape=self.time)
-        self.total_repayment:           np.ndarray = np.zeros(shape=self.time)
-        self.total_interest:            np.ndarray = np.zeros(shape=self.time)
-        self.leverage:                  np.ndarray = np.zeros(shape=self.time)
-        self.probability_default:       np.ndarray = np.zeros(shape=self.time)
-        self.age:                       np.ndarray = np.zeros(shape=self.time)
-        self.market_share:              np.ndarray = np.zeros(shape=self.time)
-        self.assets:                    np.ndarray = np.zeros(shape=self.time)
-        self.liabilities:               np.ndarray = np.zeros(shape=self.time)
+        self.productivity:              NDArray = np.zeros(shape=self.time)
+        self.productivity_growth:       NDArray = np.zeros(shape=self.time)
+        self.expected_productivity:     NDArray = np.zeros(shape=self.time)
+        self.output:                    NDArray = np.zeros(shape=self.time)
+        self.output_growth:             NDArray = np.zeros(shape=self.time)
+        self.desired_output:            NDArray = np.zeros(shape=self.time)
+        self.demand:                    NDArray = np.zeros(shape=self.time)
+        self.expected_demand:           NDArray = np.zeros(shape=self.time)
+        self.quantity:                  NDArray = np.zeros(shape=self.time)
+        self.inventories:               NDArray = np.zeros(shape=self.time)
+        self.desired_inventories:       NDArray = np.zeros(shape=self.time)
+        self.labour:                    NDArray = np.zeros(shape=self.time)
+        self.desired_labour:            NDArray = np.zeros(shape=self.time)
+        self.labour_demand:             NDArray = np.zeros(shape=self.time)
+        self.vacancies:                 NDArray = np.zeros(shape=self.time)
+        self.wage:                      NDArray = np.zeros(shape=self.time)
+        self.wage_bill:                 NDArray = np.zeros(shape=self.time)
+        self.price:                     NDArray = np.zeros(shape=self.time)
+        self.profits:                   NDArray = np.zeros(shape=self.time)
+        self.profit_share:              NDArray = np.zeros(shape=self.time)
+        self.equity:                    NDArray = np.zeros(shape=self.time)
+        self.deposits:                  NDArray = np.zeros(shape=self.time)
+        self.desired_loan:              NDArray = np.zeros(shape=self.time)
+        self.debt:                      NDArray = np.zeros(shape=self.time)
+        self.total_repayment:           NDArray = np.zeros(shape=self.time)
+        self.total_interest:            NDArray = np.zeros(shape=self.time)
+        self.leverage:                  NDArray = np.zeros(shape=self.time)
+        self.probability_default:       NDArray = np.zeros(shape=self.time)
+        self.age:                       NDArray = np.zeros(shape=self.time)
+        self.market_share:              NDArray = np.zeros(shape=self.time)
+        self.assets:                    NDArray = np.zeros(shape=self.time)
+        self.liabilities:               NDArray = np.zeros(shape=self.time)
         # accounts      
-        self.loans:                     np.ndarray = np.zeros(shape=self.time)
-        self.repayment:                 np.ndarray = np.zeros(shape=self.time)
-        self.interest:                  np.ndarray = np.zeros(shape=self.time)
-        self.bank_ids:                  np.ndarray = np.zeros(shape=self.time)
+        self.loans:                     NDArray = np.zeros(shape=self.time)
+        self.repayment:                 NDArray = np.zeros(shape=self.time)
+        self.interest:                  NDArray = np.zeros(shape=self.time)
+        self.bank_ids:                  NDArray = np.zeros(shape=self.time)
         # Initial values        
         self.output[:]                  = initial_output
         self.desired_output[0]          = initial_output
@@ -1329,20 +1322,11 @@ class Firm(ABC):
             t : int
                 time period
         """
-<<<<<<< HEAD
         # update prices
         if self.desired_inventories[t-1] >= self.inventories[t-1]:
             self.price[t] = self.price[t-1]*(1 + self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1])
         else:
             self.price[t] = self.price[t-1]*(1 - self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1])
-=======
-        unit_cost = (self.wage_bill[t])/self.output[t]
-        # update prices
-        if self.desired_inventories[t-1] >= self.inventories[t-1]:
-            self.price[t] = max(unit_cost*(1 + 0.2), self.price[t-1]*(1 + self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1]))
-        else:
-            self.price[t] = max(unit_cost*(1 + 0.2), self.price[t-1]*(1 - self.sigma_p*abs(np.random.randn())) + self.adjust*(avg_price - self.price[t-1]))
->>>>>>> 199b339 (first commit)
 
     def determine_profits(self, t: int) -> None:
         """
@@ -2351,15 +2335,15 @@ class ConsumptionFirm(Firm):
         self.d1:                        float = params['cfirm']['d1']
         self.d2:                        float = params['cfirm']['d2']
         # Data  
-        self.capital:                   np.ndarray = np.zeros(shape=self.time)
-        self.capital_cost:              np.ndarray = np.zeros(shape=self.time)
-        self.desired_utilisation:       np.ndarray = np.zeros(shape=self.time)
-        self.investment:                np.ndarray = np.zeros(shape=self.time)
-        self.investment_cost:           np.ndarray = np.zeros(shape=self.time)
-        self.desired_investment_cost:   np.ndarray = np.zeros(shape=self.time)
-        self.desired_investment_loan:   np.ndarray = np.zeros(shape=self.time)
-        self.desired_debt_ratio:        np.ndarray = np.zeros(shape=self.time)
-        self.desired_debt:              np.ndarray = np.zeros(shape=self.time)
+        self.capital:                   NDArray = np.zeros(shape=self.time)
+        self.capital_cost:              NDArray = np.zeros(shape=self.time)
+        self.desired_utilisation:       NDArray = np.zeros(shape=self.time)
+        self.investment:                NDArray = np.zeros(shape=self.time)
+        self.investment_cost:           NDArray = np.zeros(shape=self.time)
+        self.desired_investment_cost:   NDArray = np.zeros(shape=self.time)
+        self.desired_investment_loan:   NDArray = np.zeros(shape=self.time)
+        self.desired_debt_ratio:        NDArray = np.zeros(shape=self.time)
+        self.desired_debt:              NDArray = np.zeros(shape=self.time)
         # Initial values
         self.market_share[0]            = 1/params['market']['num_cfirms']
         self.capital[0]                 = initial_output*self.acceleration

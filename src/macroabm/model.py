@@ -1,13 +1,14 @@
 import copy
-import time
-import sqlite3 as sql
+import sqlite3
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from pathlib import Path
+from numpy.typing import NDArray
 from sklearn.linear_model import LogisticRegression
-from IPython.display import clear_output
 from agents import Bank, Household, ConsumptionFirm, CapitalFirm
 
-class Market:
+class Model:
     
     """
     Market class
@@ -16,6 +17,9 @@ class Market:
     
     Attributes
     ----------
+        scenario : str
+            name of scenario 
+        
         params : dict
             model parameters
         
@@ -72,109 +76,109 @@ class Market:
         kfirm_data : pandas.DataFrame
             K-firm bankrupcty data
         
-        consumption : numpy.ndarray
+        consumption : NDArray
             real consumption 
         
-        nominal_consumption : numpy.ndarray
+        nominal_consumption : NDArray
             nominal consumption
         
-        investment : numpy.ndarray
+        investment : NDArray
             real investment
         
-        nominal_investment : numpy.ndarray
+        nominal_investment : NDArray
             nominal investment
         
-        real_gdp : numpy.ndarray
+        real_gdp : NDArray
             real gross domestic product (GDP)
         
-        nominal_gdp : numpy.ndarray
+        nominal_gdp : NDArray
             nominal gross domestic product (GDP)
         
-        capital : numpy.ndarray
+        capital : NDArray
             total capital stock
         
-        cfirm_productivity : numpy.ndarray
+        cfirm_productivity : NDArray
             average C-firm productivity 
         
-        kfirm_productivity : numpy.ndarray
+        kfirm_productivity : NDArray
             average K-firm productivity 
         
-        debt : numpy.ndarray
+        debt : NDArray
             total nominal debt
         
-        profits : numpy.ndarray
+        profits : NDArray
             total nominal profits
         
-        cfirm_price_index : numpy.ndarray
+        cfirm_price_index : NDArray
             consumption good Paasche price index
         
-        kfirm_price_index : numpy.ndarray
+        kfirm_price_index : NDArray
             capital good Paasche price index
         
-        cfirm_nhhi : numpy.ndarray
+        cfirm_nhhi : NDArray
             C-firm normalised Herfindahl-Hirschman Index
         
-        kfirm_nhhi : numpy.ndarray
+        kfirm_nhhi : NDArray
             K-firm normalised Herfindahl-Hirschman Index
         
-        cfirm_hpi : numpy.ndarray
+        cfirm_hpi : NDArray
             C-firm Hymer-Pashigian Instability Index
         
-        kfirm_hpi : numpy.ndarray
+        kfirm_hpi : NDArray
             K-firm Hymer-Pashigian Instability Index
         
-        cfirm_bankruptcy : numpy.ndarray
+        cfirm_bankruptcy : NDArray
             total C-firm bankruptcies per period
         
-        kfirm_bankruptcy : numpy.ndarray
+        kfirm_bankruptcy : NDArray
             total K-firm bankruptcies per period
         
-        wages : numpy.ndarray
+        wages : NDArray
             total household wages
         
-        avg_wage : numpy.ndarray
+        avg_wage : NDArray
             average household wages
         
-        employment : numpy.ndarray
+        employment : NDArray
             total number of employed households
         
-        unemployment_rate : numpy.ndarray
+        unemployment_rate : NDArray
             unemployment rate
         
-        vacancy_ratio : numpy.ndarray
+        vacancy_ratio : NDArray
             ratio of vacancies to total households
         
-        gini : numpy.ndarray
+        gini : NDArray
             Gini Coefficient
         
-        bank_nhhi : numpy.ndarray
+        bank_nhhi : NDArray
             bank normalised Herfindahl-Hirschman Index
         
-        bank_hpi : numpy.ndarray
+        bank_hpi : NDArray
             bank Hymer-Pashigian Instability Index
         
-        avg_loan_interest : numpy.ndarray
+        avg_loan_interest : NDArray
             average bank loan interest rate
         
-        avg_reserve_ratio : numpy.ndarray
+        avg_reserve_ratio : NDArray
             average bank reserve ratio
         
-        avg_capital_ratio : numpy.ndarray
+        avg_capital_ratio : NDArray
             average bank capital ratio
         
         money_supply : numpy.array
             total M1 money supply
         
-        bank_bankruptcy : numpy.ndarray
+        bank_bankruptcy : NDArray
             number of bank bankruptcies per period
         
-        bank_mean_degree : numpy.ndarray
+        bank_mean_degree : NDArray
             average bank to firm degree 
         
-        cfirm_mean_degree : numpy.ndarray
+        cfirm_mean_degree : NDArray
             average C-firm to bank degree 
         
-        kfirm_mean_degree : numpy.ndarray
+        kfirm_mean_degree : NDArray
             average K-firm to bank degree
     
     Methods
@@ -230,7 +234,7 @@ class Market:
         run_simulation(self, cur: sql.Cursor) -> None
     """
 
-    def __init__(self, params: dict) -> None:
+    def __init__(self, scenario: str, params: dict) -> None:
         """
         Market class initialisation.
         
@@ -239,8 +243,9 @@ class Market:
             params : dict
                 model parameters
         """
-        # Parameters
-        self.params:                dict  = params
+        ### Scenario Name ### 
+        self.scenario:              str = scenario
+        ### Parameters ###
         self.simulations:           int   = params['simulation']['num_sims']
         self.steps:                 int   = params['simulation']['steps']
         self.time:                  int   = (params['simulation']['years'] + params['simulation']['start'])*self.steps + 1
@@ -256,61 +261,75 @@ class Market:
         self.kfirm_id:              int   = params['market']['num_cfirms']
         self.length:                int   = params['market']['length']
         self.initial_output:        float = np.floor(self.num_households/self.num_firms)
-        # Probability of default data 
+        ### Probability of default data ### 
         self.cfirm_data:            pd.DataFrame = pd.DataFrame({'default': {}, 'leverage': {}})
         self.kfirm_data:            pd.DataFrame = pd.DataFrame({'default': {}, 'leverage': {}})
-        # Market Data
-        self.consumption:           np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.nominal_consumption:   np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.investment:            np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.nominal_investment:    np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.real_gdp:              np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.nominal_gdp:           np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.capital:               np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_productivity:    np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_productivity:    np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        # Firm Data  
-        self.debt:                  np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.profits:               np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_price_index:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_price_index:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_nhhi:            np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_nhhi:            np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_hpi:             np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_hpi:             np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_bankruptcy:      np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_bankruptcy:      np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        # Household Data  
-        self.wages:                 np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.avg_wage:              np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.employment:            np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.unemployment_rate:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.vacancy_ratio:         np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.gini:                  np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        # Bank Data  
-        self.bank_nhhi:             np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.bank_hpi:              np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.avg_loan_interest:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.avg_reserve_ratio:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.avg_capital_ratio:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.money_supply:          np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.bank_bankruptcy:       np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        # Network Data  
-        self.bank_mean_degree:      np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.cfirm_mean_degree:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        self.kfirm_mean_degree:     np.ndarray = np.zeros(shape=(self.simulations, self.time))
-        # Initial values 
+        ### Market Data ##
+        self.consumption:           NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.nominal_consumption:   NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.investment:            NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.nominal_investment:    NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.real_gdp:              NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.nominal_gdp:           NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.capital:               NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_productivity:    NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_productivity:    NDArray = np.zeros(shape=(self.simulations, self.time))
+        ### Firm Data ###  
+        self.debt:                  NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.profits:               NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_price_index:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_price_index:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_nhhi:            NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_nhhi:            NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_hpi:             NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_hpi:             NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_bankruptcy:      NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_bankruptcy:      NDArray = np.zeros(shape=(self.simulations, self.time))
+        ### Household Data ###  
+        self.wages:                 NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.avg_wage:              NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.employment:            NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.unemployment_rate:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.vacancy_ratio:         NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.gini:                  NDArray = np.zeros(shape=(self.simulations, self.time))
+        ### Bank Data ###  
+        self.bank_nhhi:             NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.bank_hpi:              NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.avg_loan_interest:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.avg_reserve_ratio:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.avg_capital_ratio:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.money_supply:          NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.bank_bankruptcy:       NDArray = np.zeros(shape=(self.simulations, self.time))
+        ### Network Data ###  
+        self.bank_mean_degree:      NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.cfirm_mean_degree:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        self.kfirm_mean_degree:     NDArray = np.zeros(shape=(self.simulations, self.time))
+        ### Initial values ### 
         self.real_gdp[:,:]          = self.initial_output*self.num_firms
         self.nominal_gdp[:,0]       = self.real_gdp[:,0]
         self.consumption[:,0]       = self.initial_output*self.num_cfirms
         self.investment[:,0]        = self.initial_output*self.num_kfirms
         self.cfirm_price_index[:,:] = params['firm']['price']
         self.kfirm_price_index[:,:] = params['firm']['price']
-        # Initialise Database
         
-        np.array([x for x in range(10)]).mean()
         
-    def initialise_database(self, cur: sql.Cursor) -> None:
+    def initialise_database(self) -> None:
+        """
+        Iniatilise database and create tables to store macro and micro data.
+        """
+        ### Initialise Database ###
+        # current working directory
+        cwd_path = Path.cwd()
+        # database path 
+        data_path = cwd_path / "data"
+        # create data folder if doesn't exist
+        data_path.mkdir(parents=True, exist_ok=True)
+        # create database connection
+        self.connection = sqlite3.connect(data_path / f"{self.scenario}.db")
+        # create database cursor
+        self.cursor = self.connection.cursor()
+        
+        ### Initialise Tables ###
         """
         Iniitalise SQLite3 database tables:
         
@@ -319,194 +338,119 @@ class Market:
             cur : sqlite3.Cursor
                 sqlite3 cursor object
         """
+        
         ### 1. Macro Table ###
         # drop table if it already exists in the database 
-        cur.execute(
+        self.cursor.execute(
             """
                 DROP TABLE IF EXISTS macro_data;
             """
         )
-        # create new table
-        cur.execute(
-            """
-                CREATE TABLE macro_data (
-                    simulation INT NOT NULL,
-                    time INT NOT NULL,
-                    consumption REAL NOT NULL,
-                    nominal_consumption REAL NOT NULL,
-                    investment REAL NOT NULL,
-                    nominal_investment REAL NOT NULL,
-                    real_gdp REAL NOT NULL,
-                    nominal_gdp REAL NOT NULL,
-                    capital REAL NOT NULL,
-                    cfirm_productivity REAL NOT NULL,
-                    kfirm_productivity REAL NOT NULL,
-                    debt REAL NOT NULL,
-                    profits REAL NOT NULL,
-                    cfirm_price_index REAL NOT NULL,
-                    kfirm_price_index REAL NOT NULL,
-                    cfirm_nhhi REAL NOT NULL,
-                    kfirm_nhhi REAL NOT NULL,
-                    cfirm_hpi REAL NOT NULL,
-                    kfirm_hpi REAL NOT NULL,
-                    cfirm_bankruptcy REAL NOT NULL,
-                    kfirm_bankruptcy REAL NOT NULL,
-                    wages REAL NOT NULL,
-                    avg_wage REAL NOT NULL,
-                    employment REAL NOT NULL,
-                    unemployment_rate REAL NOT NULL,
-                    vacancy_ratio REAL NOT NULL,
-                    gini REAL NOT NULL,
-                    bank_nhhi REAL NOT NULL,
-                    bank_hpi REAL NOT NULL,
-                    avg_loan_interest REAL NOT NULL,
-                    avg_reserve_ratio REAL NOT NULL,
-                    avg_capital_ratio REAL NOT NULL,
-                    money_supply REAL NOT NULL,
-                    bank_bankruptcy REAL NOT NULL,
-                    bank_mean_degree REAL NOT NULL,
-                    cfirm_mean_degree REAL NOT NULL,
-                    kfirm_mean_degree REAL NOT NULL
-                );
-            """
-        )
+        # get all attributes of type np.ndarray
+        macro_array_attrs = [name for name, value in self.__dict__.items() if isinstance(value, np.ndarray)]
+        # create column names
+        macro_columns = ",\n    ".join(f"{name} REAL NOT NULL" for name in macro_array_attrs)
+        # create sql statement
+        macro_sql = f"""
+            CREATE TABLE macro_data (
+                simulation INT NOT NULL,
+                time INT NOT NULL,
+                {macro_columns}
+            );
+        """
+        # execute sql statement
+        self.cursor.execute(macro_sql)
+        
         ### 2. Firm Table ### 
         # drop table if it already exists in the database 
-        cur.execute(
+        self.cursor.execute(
             f"""
                 DROP TABLE IF EXISTS firm_data;
             """
         )
-        # create new table
-        cur.execute(
-            f"""
-                CREATE TABLE firm_data (
-                    simulation INT NOT NULL,
-                    time INT NOT NULL,
-                    id TEXT NOT NULL,
-                    firm_type TEXT NOT NULL,
-                    productivity REAL NOT NULL,
-                    productivity_growth REAL NOT NULL,
-                    expected_productivity REAL NOT NULL,
-                    output REAL NOT NULL,
-                    output_growth REAL NOT NULL,
-                    desired_output REAL NOT NULL,
-                    demand REAL NOT NULL,
-                    expected_demand REAL NOT NULL,
-                    quantity REAL NOT NULL,
-                    inventories REAL NOT NULL,
-                    desired_inventories REAL NOT NULL,
-                    labour REAL NOT NULL,
-                    desired_labour REAL NOT NULL,
-                    labour_demand REAL NOT NULL,
-                    vacancies REAL NOT NULL,
-                    wage REAL NOT NULL,
-                    wage_bill REAL NOT NULL,
-                    price REAL NOT NULL,
-                    profits REAL NOT NULL,
-                    profit_share REAL NOT NULL,
-                    equity REAL NOT NULL,
-                    deposits REAL NOT NULL,
-                    desired_loan REAL NOT NULL,
-                    debt REAL NOT NULL,
-                    total_repayment REAL NOT NULL,
-                    total_interest REAL NOT NULL,
-                    leverage REAL NOT NULL,
-                    probability_default REAL NOT NULL,
-                    age REAL NOT NULL,
-                    market_share REAL NOT NULL,
-                    capital REAL NOT NULL,
-                    desired_utilisation REAL NOT NULL,
-                    investment REAL NOT NULL,
-                    investment_cost REAL NOT NULL,
-                    desired_investment_cost REAL NOT NULL,
-                    desired_investment_loan REAL NOT NULL,
-                    desired_debt_ratio REAL NOT NULL,
-                    desired_debt REAL NOT NULL
-                );
-            """
-        )
-        ### 3. Bank Table ###
+        # temp instances of both firm types
+        temp_cfirm = ConsumptionFirm(id=0, initial_output=10, initial_wage=1, params=self.params)
+        temp_kfirm = CapitalFirm(id=0, initial_output=10, initial_wage=1, params=self.params)
+        # get ndarray attributes from both firm types
+        cfirm_attrs = {name for name, value in temp_cfirm.__dict__.items() if isinstance(value, np.ndarray)}
+        kfirm_attrs = {name for name, value in temp_kfirm.__dict__.items() if isinstance(value, np.ndarray)}
+        # take union so both types fit the schema
+        all_firm_attrs = sorted(cfirm_attrs.union(kfirm_attrs))
+        # create firm columns names
+        firm_columns = ",\n    ".join(f"{name} REAL" for name in all_firm_attrs)
+        # create sql statement
+        firm_sql = f"""
+            CREATE TABLE firm_data (
+                simulation INT NOT NULL,
+                time INT NOT NULL,
+                id INT NOT NULL,
+                firm_type TEXT NOT NULL,
+                {firm_columns}
+            );
+        """
+        # execute sql statement
+        self.cursor.execute(firm_sql)
+        
+        ### 3. Household Table ###
         # drop table if it already exists in the database 
-        cur.execute(
-            f"""
-                DROP TABLE IF EXISTS bank_data;
-            """
-        )
-        # create new table
-        cur.execute(
-            f"""
-                CREATE TABLE bank_data (
-                    simulation INT NOT NULL,
-                    time INT NOT NULL,
-                    id TEXT NOT NULL,
-                    profits REAL NOT NULL,
-                    loan_interest REAL NOT NULL,
-                    equity REAL NOT NULL,
-                    deposits REAL NOT NULL,
-                    loans REAL NOT NULL,
-                    bad_loans REAL NOT NULL,
-                    expected_bad_loans REAL NOT NULL,
-                    expected_bad_loans_ratio REAL NOT NULL,
-                    reserves REAL NOT NULL,
-                    reserve_ratio REAL NOT NULL,
-                    capital_ratio REAL NOT NULL,
-                    min_capital_ratio REAL NOT NULL,
-                    market_share REAL NOT NULL,
-                    degree REAL NOT NULL
-                );
-            """
-        )
-        ### 4. Household Table ###
-        # drop table if it already exists in the database 
-        cur.execute(
+        self.cursor.execute(
             f"""
                 DROP TABLE IF EXISTS household_data;
             """
         )
-        # create new table
-        cur.execute(
-            f"""
-                CREATE TABLE household_data (
-                    simulation INT NOT NULL,
-                    time INT NOT NULL,
-                    id TEXT NOT NULL,
-                    wage REAL NOT NULL, 
-                    income REAL NOT NULL,
-                    deposits REAL NOT NULL,
-                    expenditure REAL NOT NULL,
-                    desired_expenditure REAL NOT NULL
-                );
-            """
-        )
-        ### 4. Node Network Table ###
+        # temporary household
+        temp_household = Household(id=0, init_wage=temp_cfirm.wage[0], params=self.params)
+        # get ndarray attributes of household class
+        household_array_attrs = [name for name, value in temp_household.__dict__.items() if isinstance(value, np.ndarray)]
+        # create household column names
+        household_columns = ",\n    ".join(f"{name} REAL NOT NULL" for name in household_array_attrs)
+        # create sql statement
+        household_sql = f"""
+            CREATE TABLE household_data (
+                simulation INT NOT NULL,
+                time INT NOT NULL,
+                id INT NOT NULL,
+                employed BOOL NOT NULL,
+                {household_columns}
+            );
+        """
+        # execute sql statement
+        self.cursor.execute(household_sql)
+        
+        ### 4. Bank Table ###
         # drop table if it already exists in the database 
-        cur.execute(
+        self.cursor.execute(
             f"""
-                DROP TABLE IF EXISTS node_data;
+                DROP TABLE IF EXISTS household_data;
             """
         )
-        # create new table
-        cur.execute(
-            f"""
-                CREATE TABLE node_data (
-                    simulation INT NOT NULL,
-                    time INT NOT NULL,
-                    id TEXT NOT NULL,
-                    label TEXT NOT NULL,
-                    type TEXT NOT NULL
-                );
-            """
-        )
+        # temporary household
+        temp_bank = Bank(id=0, params=self.params)
+        # get ndarray attributes of household class
+        bank_array_attrs = [name for name, value in temp_bank.__dict__.items() if isinstance(value, np.ndarray)]
+        # create household column names
+        bank_columns = ",\n    ".join(f"{name} REAL NOT NULL" for name in bank_array_attrs)
+        # create sql statement
+        bank_sql = f"""
+            CREATE TABLE bank_data (
+                simulation INT NOT NULL,
+                time INT NOT NULL,
+                id INT NOT NULL,
+                {bank_columns}
+            );
+        """
+        # execute sql statement
+        self.cursor.execute(bank_sql)
+        
         ### 5. Edge Network Table ###
         # drop table if it already exists in the database 
-        cur.execute(
+        self.cursor.execute(
             f"""
                 DROP TABLE IF EXISTS edge_data;
             """
         )
         # create new table
-        cur.execute(
+        self.cursor.execute(
             f"""
                 CREATE TABLE edge_data (
                     simulation INT NOT NULL,
@@ -520,19 +464,19 @@ class Market:
             """
         )
     
-    def instatiate_agents(self) -> None:
+    def instatiate_agents(self, params: dict) -> None:
         """
         Instantiate agent objects with initial parameters.
         """
         # initial values 
-        debt_ratio = (self.params['cfirm']['d0'] + self.params['cfirm']['d1']*self.params['firm']['growth'] + self.params['cfirm']['d2']*self.params['cfirm']['acceleration'] * (self.params['firm']['growth'] + self.params['firm']['depreciation'])) / (1 + self.params['cfirm']['d2'] * self.params['firm']['growth'])
-        profit_share = self.params['cfirm']['acceleration']*(self.params['firm']['depreciation'] + self.params['firm']['growth']) - self.params['firm']['growth']*debt_ratio
-        initial_wage = 1 - profit_share - self.params['bank']['loan_interest']*debt_ratio
+        debt_ratio = (params['cfirm']['d0'] + params['cfirm']['d1']*params['firm']['growth'] + params['cfirm']['d2']*params['cfirm']['acceleration'] * (params['firm']['growth'] + params['firm']['depreciation'])) / (1 + params['cfirm']['d2'] * params['firm']['growth'])
+        profit_share = params['cfirm']['acceleration']*(params['firm']['depreciation'] + params['firm']['growth']) - params['firm']['growth']*debt_ratio
+        initial_wage = 1 - profit_share - params['bank']['loan_interest']*debt_ratio
         # initialse agent objects into lists 
-        self.cfirms:       list[ConsumptionFirm] = [ConsumptionFirm(x, self.initial_output, initial_wage, self.params) for x in range(self.num_cfirms)]
-        self.kfirms:       list[CapitalFirm] = [CapitalFirm(x, self.initial_output, initial_wage, self.params) for x in range(self.num_kfirms)]
-        self.banks:        list[Bank] = [Bank(x, self.params) for x in range(self.num_banks)]
-        self.households:   list[Household] = [Household(x, initial_wage, self.params) for x in range(self.num_households)] 
+        self.cfirms:       list[ConsumptionFirm] = [ConsumptionFirm(x, self.initial_output, initial_wage, params) for x in range(self.num_cfirms)]
+        self.kfirms:       list[CapitalFirm] = [CapitalFirm(x, self.initial_output, initial_wage, params) for x in range(self.num_kfirms)]
+        self.banks:        list[Bank] = [Bank(x, params) for x in range(self.num_banks)]
+        self.households:   list[Household] = [Household(x, initial_wage, params) for x in range(self.num_households)] 
         # total firms list
         self.firms:        list[ConsumptionFirm | CapitalFirm] = self.cfirms + self.kfirms
         
@@ -954,25 +898,6 @@ class Market:
          # Deep copy of everything else
         new_kfirm = copy.deepcopy(kfirm, memo)
         return new_kfirm
-
-    def compute_gini(self, t: int) -> float:
-        """
-        Calculates the Gini Coefficient between household, measures the amount of inequality.
-        
-        Parameters
-        ----------
-            t : int
-                time period
-        
-        Returns
-        -------
-            Gini Coefficient : float
-        """
-        wealth = np.sort([household.deposits[t] for household in self.households])
-        n = wealth.shape[0]
-        index = np.arange(1,n+1)
-        gini = ((np.sum((2 * index - n - 1)*wealth))/(n*np.sum(wealth)))
-        return gini
     
     def compute_cfirm_probabilities(self, t: int) -> list[float]:
         """
@@ -1042,6 +967,25 @@ class Market:
         total = sum(bank.loans[t] if bank.loans[t] > 1 else avg_loan for bank in self.banks)
         probabilities = [bank.loans[t]/total if bank.loans[t] > 1 else avg_loan/total for bank in self.banks]
         return probabilities
+    
+    def compute_gini(self, t: int) -> float:
+        """
+        Calculates the Gini Coefficient between household, measures the amount of inequality.
+        
+        Parameters
+        ----------
+            t : int
+                time period
+        
+        Returns
+        -------
+            Gini Coefficient : float
+        """
+        wealth = np.sort([household.deposits[t] for household in self.households])
+        n = wealth.shape[0]
+        index = np.arange(1,n+1)
+        gini = ((np.sum((2 * index - n - 1)*wealth))/(n*np.sum(wealth)))
+        return gini
 
     def indicators(self, s: int, t: int) -> None:
         """
@@ -1096,7 +1040,7 @@ class Market:
         self.cfirm_mean_degree[s,t]     = sum(len(np.unique(cfirm.bank_ids,return_counts=True)[0])-1 for cfirm in self.cfirms)/self.num_cfirms 
         self.kfirm_mean_degree[s,t]     = sum(len(np.unique(kfirm.bank_ids,return_counts=True)[0])-1 for kfirm in self.kfirms)/self.num_kfirms 
         
-    def update_database(self, cur: sql.Cursor, s: int, t: int) -> None:
+    def update_database(self, s: int, t: int) -> None:
         """
         Saves data in SQLite3 database.
         
@@ -1113,271 +1057,137 @@ class Market:
         """
         ### 1. Macro Table ###
         # insert values into macro table
-        cur.execute(
-            f"""
-                INSERT INTO macro_data VALUES (
-                    {s},
-                    {t},
-                    {self.consumption[s,t]},
-                    {self.nominal_consumption[s,t]},
-                    {self.investment[s,t]},
-                    {self.nominal_investment[s,t]},
-                    {self.real_gdp[s,t]},
-                    {self.nominal_gdp[s,t]},
-                    {self.capital[s,t]},
-                    {self.cfirm_productivity[s,t]},
-                    {self.kfirm_productivity[s,t]},
-                    {self.debt[s,t]},
-                    {self.profits[s,t]},
-                    {self.cfirm_price_index[s,t]},
-                    {self.kfirm_price_index[s,t]},
-                    {self.cfirm_nhhi[s,t]},
-                    {self.kfirm_nhhi[s,t]},
-                    {self.cfirm_hpi[s,t]},
-                    {self.kfirm_hpi[s,t]},
-                    {self.cfirm_bankruptcy[s,t]},
-                    {self.kfirm_bankruptcy[s,t]},
-                    {self.wages[s,t]},
-                    {self.avg_wage[s,t]},
-                    {self.employment[s,t]},
-                    {self.unemployment_rate[s,t]},
-                    {self.vacancy_ratio[s,t]},
-                    {self.gini[s,t]},
-                    {self.bank_nhhi[s,t]},
-                    {self.bank_hpi[s,t]},
-                    {self.avg_loan_interest[s,t]},
-                    {self.avg_reserve_ratio[s,t]},
-                    {self.avg_capital_ratio[s,t]},
-                    {self.money_supply[s,t]},
-                    {self.bank_bankruptcy[s,t]},
-                    {self.bank_mean_degree[s,t]},
-                    {self.cfirm_mean_degree[s,t]},
-                    {self.kfirm_mean_degree[s,t]}
-                );
-            """
+        macro_array_attrs = [name for name, value in self.__dict__.items() if isinstance(value, np.ndarray)]
+        macro_row = [s, t] + [float(getattr(self, attr)[s, t]) for attr in macro_array_attrs]
+        # placeholder for macro insert values
+        macro_placeholder = ", ".join(["?"] * len(macro_row))
+        self.cursor.execute(
+            f"INSERT INTO macro_data VALUES ({macro_placeholder});",
+            macro_row
         )
+        
         ### 2. Firm Table ###
-        # firm data for current period
-        firm_data = []
+        # union of attributes across firm types
+        cfirm_attrs = {name for name, value in self.firms[0].__dict__.items() if isinstance(value, np.ndarray)}
+        if any(type(firm).__name__ == "CapitalFirm" for firm in self.firms):
+            kfirm = next(f for f in self.firms if type(f).__name__ == "CapitalFirm")
+            kfirm_attrs = {name for name, value in kfirm.__dict__.items() if isinstance(value, np.ndarray)}
+        else:
+            kfirm_attrs = set()
+        # all firm attributes (both cfirm & kfirm)
+        all_firm_attrs = sorted(cfirm_attrs.union(kfirm_attrs))
+        # firm rows to add to table
+        firm_rows = []
         for firm in self.firms:
-            current_firm_data = []
-            current_firm_data.append(s)
-            current_firm_data.append(t)
-            current_firm_data.append(firm.__repr__())
-            current_firm_data.append(str(firm))
-            current_firm_data.append(firm.productivity[t])
-            current_firm_data.append(firm.productivity_growth[t])
-            current_firm_data.append(firm.expected_productivity[t])
-            current_firm_data.append(firm.output[t])
-            current_firm_data.append(firm.output_growth[t])
-            current_firm_data.append(firm.desired_output[t])
-            current_firm_data.append(firm.demand[t])
-            current_firm_data.append(firm.expected_demand[t])
-            current_firm_data.append(firm.quantity[t])
-            current_firm_data.append(firm.inventories[t])
-            current_firm_data.append(firm.desired_inventories[t])
-            current_firm_data.append(firm.labour[t])
-            current_firm_data.append(firm.desired_labour[t])
-            current_firm_data.append(firm.labour_demand[t])
-            current_firm_data.append(firm.vacancies[t])
-            current_firm_data.append(firm.wage[t])
-            current_firm_data.append(firm.wage_bill[t])
-            current_firm_data.append(firm.price[t])
-            current_firm_data.append(firm.profits[t])
-            current_firm_data.append(firm.profit_share[t])
-            current_firm_data.append(firm.equity[t])
-            current_firm_data.append(firm.deposits[t])
-            current_firm_data.append(firm.desired_loan[t])
-            current_firm_data.append(firm.debt[t])
-            current_firm_data.append(firm.total_repayment[t])
-            current_firm_data.append(firm.total_interest[t])
-            current_firm_data.append(firm.leverage[t])
-            current_firm_data.append(firm.probability_default[t])
-            current_firm_data.append(firm.age[t])
-            current_firm_data.append(firm.market_share[t])
-            # if consumption firm add unique attributes
-            if type(firm) is ConsumptionFirm:
-                current_firm_data.append(firm.capital[t])
-                current_firm_data.append(firm.desired_utilisation[t])
-                current_firm_data.append(firm.investment[t])
-                current_firm_data.append(firm.investment_cost[t])
-                current_firm_data.append(firm.desired_investment_cost[t])
-                current_firm_data.append(firm.desired_investment_loan[t])
-                current_firm_data.append(firm.desired_debt_ratio[t])
-                current_firm_data.append(firm.desired_debt[t])
-            # if capital firm add nan data for consumption firm attributes
-            if type(firm) is CapitalFirm:
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-                current_firm_data.append(0.0)
-            # add current firm data list to firm data list
-            firm_data.append(current_firm_data) 
-        # insert values into firm table
-        cur.executemany(
-            f"""
-                INSERT INTO firm_data VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
-            """,
-            firm_data
+            row = [s, t, firm.id, firm.__str__()]
+            for attr in all_firm_attrs:
+                if hasattr(firm, attr):
+                    row.append(float(getattr(firm, attr)[t]))
+                else:
+                    row.append(0.0)  # or None if you want NULLs
+            firm_rows.append(row)
+        # placeholder for firm insert values
+        firm_placeholder = ", ".join(["?"] * len(firm_rows[0]))
+        # execute sql statement
+        self.cursor.executemany(
+            f"INSERT INTO firm_data VALUES ({firm_placeholder});",
+            firm_rows
         )
-        ### 3. Bank Table ###
-        # bank data for current period
-        bank_data = [
-            [
-                s,
-                t,
-                bank.__repr__(),
-                bank.profits[t],
-                bank.loan_interest[t],
-                bank.equity[t],
-                bank.deposits[t],
-                bank.loans[t],
-                bank.bad_loans[t],
-                bank.expected_bad_loans[t],
-                bank.expected_bad_loans_ratio[t],
-                bank.reserves[t],
-                bank.reserve_ratio[t],
-                bank.capital_ratio[t],
-                bank.min_capital_ratio[t],
-                bank.market_share[t],
-                bank.degree[t]
-            ]
-            
-            for bank in self.banks
-        ]
-        # insert values into bank table
-        cur.executemany(
-            f"""
-                INSERT INTO bank_data VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?);
-            """,
-            bank_data
-        )
-        ### 4. Household Table ###
+
+        
+        ### 3. Household Table ###
         # household data for current period
-        household_data = [
-            [
-                s,
-                t,
-                household.__repr__(),
-                household.wage[t],
-                household.income[t],
-                household.deposits[t],
-                household.expenditure[t],
-                household.desired_expenditure[t]
-            ]
-            
-            for household in self.households
-        ]
-        # insert values into household table
-        cur.executemany(
-            f"""
-                INSERT INTO household_data VALUES (?,?,?,?,?,?,?,?);
-            """,
-            household_data
+        household_array_attrs = [name for name, value in self.households[0].__dict__.items() if isinstance(value, np.ndarray)]
+        household_rows = []
+        for household in self.households:
+            row = [s, t, household.id, household.employed] + [float(getattr(household, attr)[t]) for attr in household_array_attrs]
+            household_rows.append(row)
+        # placeholder for household insert values
+        household_placeholder = ", ".join(["?"] * len(household_rows[0]))
+        self.cursor.executemany(
+            f"INSERT INTO household_data VALUES ({household_placeholder});",
+            household_rows
         )
-        ### 5. Node Table ###
-        # node data for current period
-        node_data = [
-            [
-                s, 
-                t, 
-                agent.__repr__(), 
-                agent.__repr__(), 
-                str(agent)
-            ] 
-            
-            for agent in self.firms + self.banks
-        ]
-        # insert values into node table
-        cur.executemany(
-            f"""
-                    INSERT INTO node_data VALUES (?,?,?,?,?);
-            """,
-            node_data
+        
+        ### 4. Bank Table ###
+        # bank data for current period
+        bank_array_attrs = [name for name, value in self.banks[0].__dict__.items() if isinstance(value, np.ndarray)]
+        bank_rows = []
+        for bank in self.banks:
+            row = [s, t, bank.id] + [float(getattr(bank, attr)[t]) for attr in bank_array_attrs]
+            bank_rows.append(row)
+        # placeholder for household insert values
+        bank_placeholder = ", ".join(["?"] * len(bank_rows[0]))
+        self.cursor.executemany(
+            f"INSERT INTO bank_data VALUES ({bank_placeholder});",
+            bank_rows
         )
-        ### 6. Edge Table ###
+        
+        ### 5. Edge Table ###
         # node data for current period
-        edge_data = [
-            [
-                s, 
-                t, 
-                bank.__repr__(), 
-                firm.__repr__(), 
-                firm.compute_bank_loans(bank.id),
-                firm.assets[t],
-                bank.assets[t]
-            ]
+        edge_rows = [
+            [s, t, bank.__repr__(), firm.__repr__(), firm.compute_bank_loans(bank.id), firm.assets[t], bank.assets[t]]
             
             for bank in self.banks for firm in bank.loan_firms
         ]
         # insert values into edge table
-        cur.executemany(
-            f"""
-                    INSERT INTO edge_data VALUES (?,?,?,?,?,?,?);
-            """,
-            edge_data
+        edge_placeholder = ", ".join(["?"] * len(edge_rows[0]))
+        self.cursor.executemany(
+            f"""INSERT INTO edge_data VALUES ({edge_placeholder});""",
+            edge_rows
         )
-
-    def print_results(self, s: int, t: int) -> None:
+    
+    def close_databse(self) -> None:
+        self.connection.commit()
+        self.cursor.close()
+        
+    def step(self, s: int, t: int) -> None:
         """
-        Prints key simulation results to the consol at the end of each period.
+        Update model time step.
         
         Parameters
         ----------
-            s : int 
-                simulation number
-            
-            t : int
-                time period
+            s : int
+                simulation index
+            t : int 
+                time period index
         """
-        print(
-        f'Simulation          = {s}',
-        f'Timeperiod          = {t}',
-        f'GDP Growth          = {round((np.log(self.real_gdp[s,t]) - np.log(self.real_gdp[s,t-self.steps]))*100, 2)}%',
-        f'Inflation           = {round((np.log(self.cfirm_price_index[s,t]) - np.log(self.cfirm_price_index[s,t-self.steps]))*100, 2)}%',
-        f'Unemployment        = {round(self.unemployment_rate[s,t]*100, 2)}%',
-        '--------------------------',
-        sep='\n')
-        clear_output(wait=True)
+        self.new_entrants(s, t)
+        self.labour_market(s, t)
+        self.production(s, t)
+        self.consumption_market(t)
+        self.capital_market(t)
+        self.probability_default(t)
+        self.credit_market(s, t)
+        self.bankrupcty_data(t)
+        self.bankruptcies(s, t)
+        self.market_shares(t)
+        self.indicators(s, t)
+        self.update_database(s, t)
 
-    def run_simulation(self, cur: sql.Cursor) -> None:
+    def run(self, params: dict, init_seed: int | None = None) -> None:
         """
-        Runs batch simulation of the model.
+        Runs batch of num_sims simulations of the model, as defined in num_sims in the config/parameters.yaml file.
         
         Parameters
         ----------
-            cur : sqlite3.Cursor
-                SQLite3 database cursor object
+            params: dict 
+                dictionary of simulation parameters from config/parameters.yaml file
+                
+            init_seed : int | None
+                initial random seed for the simulation (added to each simulation for a new random simulation)
         """
-        # start simulation timer
-        start_time = time.perf_counter()
         # initialise sql database
-        self.initialise_database(cur)
+        self.initialise_database()
         # start simulation
-        for s in range(self.simulations):
-            np.random.seed(s)
-            self.instatiate_agents()
+        for s in tqdm(range(self.simulations)):
+            # set random seed if entered
+            if not init_seed:
+                np.random.seed(init_seed + s)
+            # instantiate agents
+            self.instatiate_agents(params)
+            # initialise simulation s
             self.initialise_simulation()
-            for t in range(1, self.time):
-                self.new_entrants(s, t)
-                self.labour_market(s, t)
-                self.production(s, t)
-                self.consumption_market(t)
-                self.capital_market(t)
-                self.probability_default(t)
-                self.credit_market(s, t)
-                self.bankrupcty_data(t)
-                self.bankruptcies(s, t)
-                self.market_shares(t)
-                self.indicators(s, t)
-                self.update_database(cur, s, t)
-                self.print_results(s, t)
-        # end simulation timer
-        end_time = time.perf_counter()
-        # total simulaton time
-        sim_time = end_time - start_time
-        print(f'FINISHED! Time = {round(sim_time/60, 2)} minutes')
+            # start simulation s
+            for t in tqdm(range(1, self.time), leave=True):
+                self.step(s, t)

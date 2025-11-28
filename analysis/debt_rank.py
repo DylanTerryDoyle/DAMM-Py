@@ -1,14 +1,12 @@
 import os
-import sys
 import sqlite3
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 # add parent directory to system path
-sys.path.append('..')
-from utils_analysis import load_parameters, bank_debtrank, expected_systemic_loss
+from analysis.utils import load_parameters, bank_debtrank, expected_systemic_loss
 
-### matplotlib settings ###
+### Plot Parameters ###
 
 # change matplotlib font to serif
 plt.rcParams['font.family'] = ['serif']
@@ -17,12 +15,16 @@ x_figsize = 10
 y_figsize = x_figsize/2
 # fontsize
 fontsize = 25
+# upper decile 
+upper = 0.9
+# lower decile
+lower = 0.1
 
-### paths to folders ###
+### Paths ###
 
 analysis_path = os.getcwd()
 parent_path = os.path.abspath(os.path.join(analysis_path, os.pardir))
-figure_path = f"{analysis_path}\\figures\\batch"
+figure_path = f"{analysis_path}\\figures\\debt_rank"
 table_path = f"{analysis_path}\\tables"
 
 ### load model parameters ###
@@ -154,19 +156,20 @@ for index in range(len(databases)):
     # median esl over simulations
     median = np.quantile(esl_gdp, q=0.5, axis=0)
     # Top 9th decile
-    upper = np.quantile(esl_gdp, q=0.9, axis=0)
+    upper = np.quantile(esl_gdp, q=upper, axis=0)
     # Top 1st decile
-    lower = np.quantile(esl_gdp, q=0.1, axis=0)
+    lower = np.quantile(esl_gdp, q=lower, axis=0)
 
     plt.figure(figsize=(x_figsize,y_figsize))
     plt.plot(years, median, color='k', linewidth=1, label='Mean')
-    plt.fill_between(years, median, upper, color='grey', alpha=0.3, label='IDR')
-    plt.fill_between(years, median, lower, color='grey', alpha=0.3)
+    plt.fill_between(years, median, upper, color='grey', alpha=0.2, label='IDR')
+    plt.fill_between(years, median, lower, color='grey', alpha=0.2)
     # legend
     plt.legend(loc='upper left', fontsize=fontsize)
     # ticks 
     plt.yticks(fontsize=fontsize)
     plt.xticks(fontsize=fontsize)
+    # y limit
+    plt.ylim((-0.05, 1.35))
     # save figure
     plt.savefig(f'{figure_path}\\esl_{suffix}.png', bbox_inches='tight')
-    plt.show()

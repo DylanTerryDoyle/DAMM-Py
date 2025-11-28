@@ -1,15 +1,17 @@
 import yaml
+import sqlite3
 import numpy as np
 import pandas as pd
 import powerlaw as pl
 from scipy import stats
+from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.collections import PolyCollection
 import statsmodels.api as sm
 from statsmodels.graphics import tsaplots
 from numba import njit, prange
 
-def load_parameters(filename: str):
+def load_yaml(file: Path | str):
     """
     Load YAML file as dictionary.
     
@@ -23,9 +25,82 @@ def load_parameters(filename: str):
         file_dict : dict
             YAML file loaded as dictionary 
     """
-    with open(filename, 'r') as file:
-        file_dict = yaml.safe_load(file)
+    with open(file, 'r') as f:
+        file_dict = yaml.safe_load(f)
     return file_dict
+
+def load_macro_data(path: Path | str, params: dict, steps: int, start: int):
+    '''Load macro_data table from the SQL database into a pandas DataFrame and calculate variables.'''
+    # create connection to database
+    con = sqlite3.connect(path)
+    # load table into pandas DataFrame
+    data = pd.read_sql_query(f"SELECT * FROM macro_data", con)
+    ### define new time series ###
+    # year
+    data['year'] = (data['time'] // steps).astype(int)
+    # avg hpi
+    data['avg_hpi'] = (data['cfirm_hpi'] + data['kfirm_hpi'] + data['bank_hpi'])/3
+    # avg nhhi
+    data['avg_nhhi'] = (data['cfirm_nhhi'] + data['kfirm_nhhi'] + data['bank_nhhi'])/3
+    # real gdp growth 
+    data['rgdp_growth'] = np.log(data['real_gdp']) - np.log(data['real_gdp'].shift(steps))
+    # inflation
+    data['inflation'] = np.log(data['cfirm_price_index']) - np.log(data['cfirm_price_index'].shift(steps))
+    # wage inflation
+    data['wage_inflation'] = np.log(data['avg_wage']) - np.log(data['avg_wage'].shift(steps))
+    # debt ratio
+    data['debt_ratio'] = data['debt']/data['nominal_gdp']
+    # wage share
+    data['wage_share'] = data['wages']/data['nominal_gdp']
+    # profit share
+    data['profit_share'] = data['profits']/data['nominal_gdp']
+    # normalised productivity to start date
+    data['productivity'] = (data['real_gdp']/data['employment'])/(data['real_gdp'][start]/data['employment'][start])
+    # productivity growth
+    data['productivity_growth'] = np.log(data['productivity']) - np.log(data['productivity'].shift(steps))
+    # credit: debt growth rate
+    data['credit'] = np.log(data['debt']) - np.log(data['debt'].shift(steps))
+    # change unemployment 
+    data['change_unemployment'] = data['unemployment_rate'] - data['unemployment_rate'].shift(steps)
+    # probability of at least one crisis in a given year
+    data['crises'] = (data['rgdp_growth'] < -0.03).astype(int)
+    data['yearly_crises'] = data.groupby(['simulation', 'year'])['crises'].transform('max')
+    data['crises_prob'] = data.groupby('time')['yearly_crises'].transform('mean')
+    
+    # quarterly default probability
+    data['cfirm_prob'] = data['cfirm_bankruptcy'] / params['market']['num_cfirms']
+    data['kfirm_prob'] = data['kfirm_bankruptcy'] / params['market']['num_kfirms']
+    data['bank_prob']  = data['bank_bankruptcy']  / params['market']['num_banks']
+    
+     # average per year default probability, per simulation, split by crisis 
+    yearly_probs = (
+        data.groupby(['simulation','year','crises'])[['cfirm_prob','kfirm_prob','bank_prob']]
+        .mean()
+        .reset_index()
+    )
+    
+    # average across years within each simulation, conditional on there being a crisis
+    cond_probs = (
+        yearly_probs.groupby(['simulation','crises'])[['cfirm_prob','kfirm_prob','bank_prob']]
+        .mean()
+        .reset_index()
+    )
+
+    # Pivot to get separate columns for crisis=1 (true) and crisis=0 (false)
+    cond_probs = cond_probs.pivot(index='simulation', columns='crises')
+    cond_probs.columns = [f"{var}_crises{c}" for var,c in cond_probs.columns]
+    cond_probs = cond_probs.reset_index()
+
+    # merge back into main data so each row has the conditional averages
+    data = data.merge(cond_probs, on='simulation', how='left')
+
+    # drop transient data
+    data = data.loc[data['time'] > start]
+    # reset index
+    data.reset_index(inplace=True, drop=True)
+    # close connection to database
+    con.close()
+    return data
 
 def logscale_ticks(low: float, high: float, num: int) -> np.ndarray:
     """
@@ -50,7 +125,7 @@ def logscale_ticks(low: float, high: float, num: int) -> np.ndarray:
     round_log_arr = np.int64(np.round(log_arr.astype(int) / factor) * factor)
     return round_log_arr
 
-def plot_autocorrelation(simulated: pd.DataFrame, empirical: pd.DataFrame, feature: str, figsize: tuple, fontsize: int, lags: int, lamda: int, savefig: str):
+def plot_autocorrelation(simulated: np.typing.ArrayLike, empirical: np.typing.ArrayLike, feature: str, figsize: tuple[int,int], fontsize: int, lags: int, lamda: int, savefig: str):
     """
     Plots the autocorrelation function (ACF) of the simulated time-series with a 95% confidence interval (CI), calculated over all simulations,
     and also plots the empirical time-series ACF for a given feature vector of the two time-series for a given number of lags.
@@ -123,7 +198,7 @@ def plot_autocorrelation(simulated: pd.DataFrame, empirical: pd.DataFrame, featu
     # show figure
     plt.show()
 
-def plot_cross_correlation(simulated: pd.DataFrame, empirical: pd.DataFrame, xfeature: str, yfeature: str, figsize: tuple, fontsize: int, lags: int, lamda: int, savefig: str):
+def plot_cross_correlation(simulated: np.typing.ArrayLike, empirical: np.typing.ArrayLike, xfeature: str, yfeature: str, figsize: tuple[int,int], fontsize: int, lags: int, lamda: int, savefig: str):
     """
     Plots the cross correlation (xcorr) of the simulated time-series for feature xfeature and yfeature with a 95% confidence interval (CI), calculated over all simulations,
     and also plots the empirical time-series xcorr for a given xfeature and yfeature vector, each for a given number of lags.
@@ -203,7 +278,7 @@ def plot_cross_correlation(simulated: pd.DataFrame, empirical: pd.DataFrame, xfe
     # show figure
     plt.show()
 
-def plot_ccdf(data, figsize: tuple, fontsize: int, ylim: list, savefig: str, dp: int=0) -> None:
+def plot_ccdf(data: np.typing.ArrayLike, figsize: tuple[int,int], fontsize: int, ylim: tuple[float,float], savefig: str, dp: int=0) -> None:
     """
     Plots the complementary cumulative distribution function (CCDF) for a given series 
     and prints the power law exponent, cut-off value, and compares the distribution to a lognormal.
@@ -271,7 +346,7 @@ def bank_debtrank(
     firm_assets: np.typing.NDArray[np.float64],    # shape (num_firms,)
     max_iterations: int = 500,
     epsilon: float = 1e-8
-) -> tuple:
+) -> tuple[np.typing.NDArray[np.float64], np.typing.NDArray[np.float64]]:
     """
     Description
     -----------

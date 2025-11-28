@@ -1,6 +1,5 @@
-# Name of SQL database
-database_name: 'test.py'
-database_path: 'F:\Documents 202507\University\University of Sussex\BSc Dissertation\Publishing\MacroABM\data'
+# scenario names
+scenarios: ["growth1", "growth2", "zero_growth1", "zero_growth2"]
 
 # Simulation Parameters
 simulation:
@@ -50,7 +49,7 @@ firm:
   # speed of adjustment (prices & wages)
   adjust: 0.1
   # annual labour productivity average growth rate
-  growth: 0.02
+  growth: [0.02, 0.02, 0.0, 0.0]
   # annual labour productivity standard deviation
   sigma: 0.03
   # annual price standard deviation
@@ -77,8 +76,8 @@ cfirm:
   acceleration: 3
   # desired debt parameters
   d0: 0.5
-  d1: 3
-  d2: 2
+  d1: [3, 5, 3, 5]
+  d2: [2, 3, 2, 3]
   # number of K-firms visited (capital market)
   num_kfirms: 2
 

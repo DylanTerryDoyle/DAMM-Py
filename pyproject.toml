@@ -1,0 +1,33 @@
+[project]
+name = "macroabm"
+version = "0.1.0"
+description = "A macroeconomic agent-based model to study the implications of zero-growth."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Dylan Terry-Doyle", email = "d.c.terry-doyle@sussex.ac.uk" }
+]
+requires-python = ">=3.14"
+
+# Dependencies required to run the package (src/macroabm)
+dependencies = [
+    "pyyaml",
+    "tqdm",
+    "numpy",
+    "pandas",
+    "scikit-learn",
+    "numba"
+]
+
+# Optional: extra dependencies for analysis
+[project.optional-dependencies]
+analysis = [
+    "matplotlib",
+    "scipy",
+    "powerlaw",
+    "statsmodels"
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
