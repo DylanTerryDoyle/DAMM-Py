@@ -69,7 +69,6 @@ else:
 ### start loop over databases ###
 
 for database_path in databases_paths:
-    # database_path = databases_paths[0]
     # database suffix 
     suffix = str(database_path.name)[:-3]
     print(f"Analysing results for database {suffix}...")
@@ -78,7 +77,7 @@ for database_path in databases_paths:
 
     ### Plot GDP Ratios ###
 
-    print(f" - creating GDP ratio figures")
+    print(f"- creating GDP ratio figures")
 
     # average over simulations
     macro_group = macro_data.groupby(by="time")
@@ -108,7 +107,7 @@ for database_path in databases_paths:
 
     ### Plot Real GDP Growth Distribution ###
 
-    print(" - creating real GDP growth distribution figures")
+    print("- creating real GDP growth distribution figures")
 
     # simulated real GDP distribution - generalised normal
     num_bins = 100
@@ -254,4 +253,4 @@ box_plot_scenarios(
     figure_path = figure_path
 )
 
-print(f"FINISHED MACRO BATCH ANALYSIS! Check your figures folder\n=> {figure_path}\n")
+print(f"FINISHED MACRO BATCH ANALYSIS! Check your macro_batch figures folder\n=> {figure_path}\n")
