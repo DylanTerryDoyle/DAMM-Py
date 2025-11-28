@@ -1,6 +1,5 @@
 import yaml
 import numpy as np
-from numba import njit
 from pathlib import Path
 
 def load_yaml(file: Path | str):

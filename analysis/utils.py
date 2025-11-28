@@ -6,10 +6,10 @@ import powerlaw as pl
 from scipy import stats
 from pathlib import Path
 import matplotlib.pyplot as plt
+from numpy.typing import NDArray
 from matplotlib.collections import PolyCollection
 import statsmodels.api as sm
 from statsmodels.graphics import tsaplots
-from numba import njit, prange
 
 def load_yaml(file: Path | str):
     """
@@ -337,16 +337,14 @@ def plot_ccdf(data: np.typing.ArrayLike, figsize: tuple[int,int], fontsize: int,
     print(f'Power law minimum = {m}')
     print(f"Distribution compare = {results.distribution_compare('power_law', 'lognormal')}\n")
     
-# njit function to calculate bank debtrank
-@njit(parallel=True, cache=True)
 def bank_debtrank(
-    W_banks: np.typing.NDArray[np.float64],        # shape (num_banks, num_firms) 
-    W_firms: np.typing.NDArray[np.float64],        # shape (num_firms, num_banks) 
-    bank_assets: np.typing.NDArray[np.float64],    # shape (num_banks,)
-    firm_assets: np.typing.NDArray[np.float64],    # shape (num_firms,)
-    max_iterations: int = 500,
-    epsilon: float = 1e-8
-) -> tuple[np.typing.NDArray[np.float64], np.typing.NDArray[np.float64]]:
+        W_banks: NDArray[np.float64],        # shape (num_banks, num_firms)
+        W_firms: NDArray[np.float64],        # shape (num_firms, num_banks)
+        bank_assets: NDArray[np.float64],    # shape (num_banks,)
+        firm_assets: NDArray[np.float64],    # shape (num_firms,)
+        max_iterations: int = 500,
+        epsilon: float = 1e-8
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """
     Description
     -----------
@@ -386,145 +384,84 @@ def bank_debtrank(
         (bank_dr, firm_dr) : tuple(NDArray[Float64], NDArray[float64])
             a tuple of bank DebtRanks and firm DebtRanks when each bank becomes bankrupt
     """
-    # number of banks
-    num_banks = bank_assets.shape[0]
-    # number of firms 
-    num_firms = firm_assets.shape[0]
+    num_banks = len(bank_assets)
+    num_firms = len(firm_assets)
+    
+    bank_index = np.arange(num_banks)
 
-    # precompute total bank assets
-    total_bank_assets = 0.0
-    for b in range(num_banks):
-        total_bank_assets += bank_assets[b]
+    # total assets
+    total_bank_assets = np.sum(bank_assets)
+    total_firm_assets = np.sum(firm_assets)
 
-    # precompute total firm assets
-    total_firm_assets = 0.0
-    for f in range(num_firms):
-        total_firm_assets += firm_assets[f]
-
-    # bank debtrank output array
     bank_dr = np.zeros(num_banks, dtype=np.float64)
-    # firm debtrank output array
     firm_dr = np.zeros(num_banks, dtype=np.float64)
 
-    # bank shocks (compute parallel for each bank i)
-    for i in prange(num_banks):
-        # bank distress
+    for i in range(num_banks):
+        # initialize distress vectors
         bank_distress = np.zeros(num_banks, dtype=np.float64)
-        # firm distress 
         firm_distress = np.zeros(num_firms, dtype=np.float64)
-        # bank state: 0=U (undistressed), 1=D (distressed), and 2=I (inactive)
+
+        # initialize states: 0=U (undistressed), 1=D (distressed), 2=I (inactive)
         bank_state = np.zeros(num_banks, dtype=np.int8)
-        # firm state: 0=U (undistressed), 1=D (distressed), and 2=I (inactive)
-        firm_state = np.zeros(num_firms, dtype=np.int8)      # firm state
+        firm_state = np.zeros(num_firms, dtype=np.int8)
 
-        # bank i maximally distressed (bankrupt)
+        # initial shock: bank i bankrupt
         bank_distress[i] = 1.0
-        bank_state[i] = 1  # Distressed state (D)
+        bank_state[i] = 1  # Distressed (D)
+        
+        # initial distressed bank mask
+        bank_mask = bank_index != i
 
-        # initialise previous sum for convergence test
-        prev_total = 1.0 
+        # initial previous total for convergence
+        prev_total = 1.0
 
-        # propagate until convergence or max iter
         for _ in range(max_iterations):
-            
-            ### 1) distressed banks (in set D) propagate to firms ###
-            
+            ### propagate banks distress to firms ###
+            # mask for distressed banks
+            distressed_banks = (bank_state == 1).astype(np.float64)
             # update firm distress
-            for f in range(num_firms):
-                # new distress propagated to firms
-                firm_distress_propagation = 0.0
-                # dot product across banks (excluding distressed banks)
-                for b in range(num_banks):
-                    if bank_state[b] == 1:
-                        firm_distress_propagation += W_firms[f, b] * bank_distress[b]
-                # update distress (only if not already 1)
-                firm_distress[f] = firm_distress[f] + firm_distress_propagation
-                # can at 1
-                if firm_distress[f] > 1.0:
-                    firm_distress[f] = 1.0
+            firm_distress = np.minimum(1.0, firm_distress + W_firms@(distressed_banks*bank_distress))
+            # mark newly distressed firms
+            firm_state[(firm_distress > 0) & (firm_state == 0)] = 1
 
-            # mark firms distressed (s=1 => D) 
-            for f in range(num_firms):
-                if firm_distress[f] > 0.0 and firm_state[f] == 0:
-                    firm_state[f] = 1
-
-            ### 2) distressed firms propagate to banks ###
-            
+            ### propagate firms distress to banks ###
+            # mask for distressed firms
+            distressed_firms = (firm_state == 1).astype(np.float64)
             # update bank distress
-            for f in range(num_firms):
-                # new distress propagated to firms
-                bank_distress_propagation = 0.0
-                # dot product across banks (excluding distressed banks)
-                for b in range(num_banks):
-                    if bank_state[b] == 1:
-                        bank_distress_propagation += W_banks[f, b] * firm_distress[b]
-                # update distress
-                bank_distress[f] = bank_distress[f] + bank_distress_propagation
-                # can at 1
-                if bank_distress[f] > 1.0:
-                    bank_distress[f] = 1.0
+            bank_distress = np.minimum(1.0, bank_distress + W_banks@(distressed_firms*firm_distress))
+            # mark newly distressed banks
+            bank_state[(bank_distress > 0) & (bank_state == 0)] = 1
 
-            # mark banks distressed (s=1 => D) 
-            for b in range(num_banks):
-                if bank_distress[b] > 0.0 and bank_state[b] == 0:
-                    bank_state[b] = 1
+            ### update banks states ###
+            # distressed banks to inactive 
+            bank_state[bank_state == 1] = 2
+            # distressed firms to inactive 
+            firm_state[firm_state == 1] = 2
 
-            ### 3) nodes that were distressed (D) become inactive (I) ###
-            
-            # mark distressed banks as inactive 
-            for b in range(num_banks):
-                if bank_state[b] == 1:
-                    bank_state[b] = 2
-            
-            # mark distressed firms as inactive
-            for f in range(num_firms):
-                if firm_state[f] == 1:
-                    firm_state[f] = 2
-
-            # 4) convergence: compare sums
-            total = 0.0
-            for b in range(num_banks):
-                total += bank_distress[b]
-            for f in range(num_firms):
-                total += firm_distress[f]
-
+            ### check convergence ### 
+            total = np.sum(bank_distress) + np.sum(firm_distress)
+            # break loop if converged
             if abs(total - prev_total) < epsilon:
                 break
+            # update previous total for convergence check
             prev_total = total
 
-        ### 5) calculate DebtRank for banks and firms
-        
-        # Compute bank layer DebtRank 
+        ### compute DebtRank ### 
+        # total banks assets less initial distressed bank i
         total_banks_assets_less_i = total_bank_assets - bank_assets[i]
-        # guard against zero denominator
-        if total_banks_assets_less_i == 0.0:
-            # if denominator is zero or negative, set bank_dr[i] to 0 to avoid division by zero
+        # 
+        if total_banks_assets_less_i > 0:
+            bank_dr[i] = np.sum(bank_distress[bank_mask]*bank_assets[bank_mask])/total_banks_assets_less_i
+        else:
             bank_dr[i] = 0.0
-        else:
-            total_bank_asset_loss_less_i = 0.0
-            for b in range(num_banks):
-                if b != i:
-                    total_bank_asset_loss_less_i += bank_distress[b] * bank_assets[b]
-            # bank DebtRank given bank i defaults
-            bank_dr[i] = total_bank_asset_loss_less_i / total_banks_assets_less_i
 
-        # compute firm layer DebtRank
-        # guard against zero denominator
-        if total_firm_assets == 0.0:
-            # if denominator is zero or negative, set firm_dr[i] to 0 to avoid division by zero
+        if total_firm_assets > 0:
+            firm_dr[i] = np.sum(firm_distress*firm_assets)/total_firm_assets
+        else:
             firm_dr[i] = 0.0
-        else:
-            total_firm_asset_loss = 0.0
-            for f in range(num_firms):
-                total_firm_asset_loss += firm_distress[f] * firm_assets[f]
-            # firm DebtRank given bank i defaults
-            firm_dr[i] = total_firm_asset_loss / total_firm_assets
 
-    # return bank and firm DebtRanks
     return bank_dr, firm_dr
 
-
-@njit(cache=True)
 def expected_systemic_loss(
     bank_dr: np.typing.NDArray[np.float64],
     firm_dr: np.typing.NDArray[np.float64],
@@ -566,20 +503,12 @@ def expected_systemic_loss(
         esl : float
             Expected systemic loss approximation
     """
-    # total monetary value of bank assets 
-    total_bank_assets = 0.0
-    for b in range(bank_assets.shape[0]):
-        total_bank_assets += bank_assets[b]
-        
-    # total monetary value of firms assets 
-    total_firm_assets = 0.0
-    for f in range(firm_assets.shape[0]):
-        total_firm_assets += firm_assets[f]
+    # total assets
+    total_bank_assets = np.sum(bank_assets)
+    total_firm_assets = np.sum(firm_assets)
 
     # expected systemic loss approximation (ESL)
-    esl = 0.0
-    for i in range(bank_dr.shape[0]):
-        esl += prob_default[i] * (bank_dr[i] * total_bank_assets + firm_dr[i] * total_firm_assets)
+    esl = np.sum(prob_default*(bank_dr*total_bank_assets + firm_dr*total_firm_assets))
 
     # return esl calculation
     return esl
