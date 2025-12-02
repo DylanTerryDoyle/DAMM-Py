@@ -4,16 +4,13 @@ scenarios: ["growth1", "growth2", "zero_growth1", "zero_growth2"]
 # Simulation Parameters
 simulation:
   # number of simulations
-  num_sims: 1
+  num_sims: 50
   # number of years in each simulation
   years: 100
   # number of steps in each year
   steps: 4
   # start year (transient data cut-off)
   start: 50
-
-# Market Parameters
-market:
   # number of C-firms
   num_cfirms: 200
   # number of K-firms
@@ -22,8 +19,6 @@ market:
   num_households: 2000
   # number of banks
   num_banks: 10
-  # proabability of deafault max data set length
-  length: 500
 
 # Bank Parameters
 bank:
@@ -41,6 +36,8 @@ bank:
   capital_intercept: 0.06
   # desired capital ratio slope (1 - intercept)
   capital_slope: 1
+  # proabability of deafault max data set length
+  defaults_data_length: 500
 
 # Firm Parameters
 firm:

@@ -20,7 +20,7 @@ class Model:
     """
     Market class
     ============
-    Runs the macro ABM model. 
+    Runs the Dynamic Agent-based Model of the Macroeconomy (DAMM). 
     
     Attributes
     ----------
@@ -192,7 +192,7 @@ class Model:
     -------
         __init__(self, params: dict) -> None
         
-        initialise_database(self, cur: sql.Cursor) -> None
+        initialise_database(self) -> None
         
         instatiate_agents(self) -> None
         
@@ -222,8 +222,6 @@ class Model:
         
         copy_kfirm(self, kfirm: CapitalFirm) -> CapitalFirm
         
-        compute_gini(self, t: int) -> float
-        
         compute_cfirm_probabilities(self, t: int) -> list[float]
         
         compute_kfirm_probabilities(self, t: int) -> list[float]
@@ -232,13 +230,19 @@ class Model:
         
         compute_loan_probabilities(self, t: int) -> list[float]
         
+        compute_gini(self, t: int) -> float
+        
         indicators(self, s: int, t: int) -> None
         
-        update_database(self, cur: sql.Cursor, s: int, t: int) -> None
+        update_database(self, s: int, t: int) -> None
         
-        print_results(self, s: int, t: int) -> None
-        
+        close_database(self) -> None
+                
         run_simulation(self, cur: sql.Cursor) -> None
+        
+        step(self, s: int, t: int) -> None
+        
+        run(self, params: dict, init_seed: int | None = None) -> None
     """
 
     def __init__(self, scenario: str, params: dict) -> None:
@@ -253,20 +257,20 @@ class Model:
         ### Scenario Name ### 
         self.scenario:              str = scenario
         ### Parameters ###
+        self.params:                dict  = params
         self.simulations:           int   = params['simulation']['num_sims']
         self.steps:                 int   = params['simulation']['steps']
         self.time:                  int   = (params['simulation']['years'] + params['simulation']['start'])*self.steps + 1
         self.start:                 int   = params['simulation']['start']*self.steps
         self.dt:                    float = 1/self.steps
-        self.growth:                float = params['firm']['growth']*self.dt
-        self.num_households:        int   = params['market']['num_households']
-        self.num_banks:             int   = params['market']['num_banks']
-        self.num_cfirms:            int   = params['market']['num_cfirms']
-        self.num_kfirms:            int   = params['market']['num_kfirms']
+        self.num_households:        int   = params['simulation']['num_households']
+        self.num_banks:             int   = params['simulation']['num_banks']
+        self.num_cfirms:            int   = params['simulation']['num_cfirms']
+        self.num_kfirms:            int   = params['simulation']['num_kfirms']
         self.num_firms:             int   = self.num_cfirms + self.num_kfirms
-        self.cfirm_id:              int   = params['market']['num_kfirms']
-        self.kfirm_id:              int   = params['market']['num_cfirms']
-        self.length:                int   = params['market']['length']
+        self.cfirm_id:              int   = params['simulation']['num_kfirms']
+        self.kfirm_id:              int   = params['simulation']['num_cfirms']
+        self.length:                int   = params['bank']['defaults_data_length']
         self.initial_output:        float = np.floor(self.num_households/self.num_firms)
         ### Probability of default data ### 
         self.cfirm_data:            pd.DataFrame = pd.DataFrame({'default': {}, 'leverage': {}})
@@ -471,19 +475,19 @@ class Model:
             """
         )
     
-    def instatiate_agents(self, params: dict) -> None:
+    def instatiate_agents(self) -> None:
         """
         Instantiate agent objects with initial parameters.
         """
         # initial values 
-        debt_ratio = (params['cfirm']['d0'] + params['cfirm']['d1']*params['firm']['growth'] + params['cfirm']['d2']*params['cfirm']['acceleration'] * (params['firm']['growth'] + params['firm']['depreciation'])) / (1 + params['cfirm']['d2'] * params['firm']['growth'])
-        profit_share = params['cfirm']['acceleration']*(params['firm']['depreciation'] + params['firm']['growth']) - params['firm']['growth']*debt_ratio
-        initial_wage = 1 - profit_share - params['bank']['loan_interest']*debt_ratio
+        debt_ratio = (self.params['cfirm']['d0'] + self.params['cfirm']['d1']*self.params['firm']['growth'] + self.params['cfirm']['d2']*self.params['cfirm']['acceleration'] * (self.params['firm']['growth'] + self.params['firm']['depreciation'])) / (1 + self.params['cfirm']['d2'] * self.params['firm']['growth'])
+        profit_share = self.params['cfirm']['acceleration']*(self.params['firm']['depreciation'] + self.params['firm']['growth']) - self.params['firm']['growth']*debt_ratio
+        initial_wage = 1 - profit_share - self.params['bank']['loan_interest']*debt_ratio
         # initialse agent objects into lists 
-        self.cfirms:       list[ConsumptionFirm] = [ConsumptionFirm(x, self.initial_output, initial_wage, params) for x in range(self.num_cfirms)]
-        self.kfirms:       list[CapitalFirm] = [CapitalFirm(x, self.initial_output, initial_wage, params) for x in range(self.num_kfirms)]
-        self.banks:        list[Bank] = [Bank(x, params) for x in range(self.num_banks)]
-        self.households:   list[Household] = [Household(x, initial_wage, params) for x in range(self.num_households)] 
+        self.cfirms:       list[ConsumptionFirm] = [ConsumptionFirm(x, self.initial_output, initial_wage, self.params) for x in range(self.num_cfirms)]
+        self.kfirms:       list[CapitalFirm] = [CapitalFirm(x, self.initial_output, initial_wage, self.params) for x in range(self.num_kfirms)]
+        self.banks:        list[Bank] = [Bank(x, self.params) for x in range(self.num_banks)]
+        self.households:   list[Household] = [Household(x, initial_wage, self.params) for x in range(self.num_households)] 
         # total firms list
         self.firms:        list[ConsumptionFirm | CapitalFirm] = self.cfirms + self.kfirms
         
@@ -1144,7 +1148,7 @@ class Model:
             edge_rows
         )
     
-    def close_databse(self) -> None:
+    def close_database(self) -> None:
         self.connection.commit()
         self.cursor.close()
         
@@ -1172,7 +1176,7 @@ class Model:
         self.indicators(s, t)
         self.update_database(s, t)
 
-    def run(self, params: dict, init_seed: int | None = None) -> None:
+    def run(self, init_seed: int | None = None) -> None:
         """
         Runs batch of num_sims simulations of the model, as defined in num_sims in the config/parameters.yaml file.
         
@@ -1192,9 +1196,11 @@ class Model:
             if not init_seed:
                 np.random.seed(init_seed + s)
             # instantiate agents
-            self.instatiate_agents(params)
+            self.instatiate_agents()
             # initialise simulation s
             self.initialise_simulation()
             # start simulation s
             for t in tqdm(range(1, self.time), leave=True):
                 self.step(s, t)
+        # close the database
+        self.close_database()

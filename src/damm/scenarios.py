@@ -1,42 +1,56 @@
 
-import sqlite3
 from pathlib import Path
 from damm.model import Model
 from damm.utils import load_yaml
 
 def main():
     """
-    Run this file to run the main function which starts the macro ABM simulation.
+    Run this file to run the main function which runs the 4 scenarios of the DAMM model.
+    
+    Growth Scenario 1: low debt 
+        - 2% productivity growth => growth = 0.02 
+        - low debt volatility => d1 = 3 & d2 = 2
+        
+    Growth scenario 2: high debt
+        -  2% productivity growth => growth = 0.02
+        - high debt volatility => d1 = 5 & d2 = 3
+        
+    Zero-Growth Scenario 1: low debt 
+        - 0% productivity growth => growth = 0.0
+        - low debt volatility => d1 = 3 & d2 = 2
+    
+    Zero-Growth Scenario 2: high debt 
+        - 0% productivity growth => growth = 0.0
+        - high debt volatility => d1 = 5 & d2 = 3
     """
 
     ### paths ###
 
     # current working directory
     cwd_path = Path.cwd()
+    
     # parameters path 
     params_path = cwd_path / "src" / "config" / "parameters.yaml"
 
 
-    ### load model parameters ###
+    ### Model Parameters ###
     params = load_yaml(params_path)
-
-    ### create model object ###
-    market = Model(params)
-    # connect/create database
-    try:
-        # connect/create specified database path and name
-        conn = sqlite3.connect(f"{params['database_path']}\\{params['database_name']}.db")
-    except sqlite3.OperationalError:
-        # connect/create to database called data in current src folder if database details are not given
-        conn = sqlite3.connect(f"data.db")
-    # create cursor 
-    cur = conn.cursor()
-    # run simulation
-    market.run_simulation(cur)
-    # close database connection 
-    cur.close()
-    conn.commit()
-    conn.close()
+    
+    ### Start Scenario Simulations ###
+    
+    for i, scenario in enumerate(params["scenarios"]):
+        print(f"Running scenario {scenario}")
+        # scenario specific parameters
+        scenario_params = params.copy()
+        scenario_params["firm"]["growth"] = params["firm"]["growth"][i]
+        scenario_params["cfirm"]["d1"] = scenario_params["cfirm"]["d1"][i]
+        scenario_params["cfirm"]["d2"] = scenario_params["cfirm"]["d2"][i]
+        
+        # instantiate model object for scenario
+        model = Model(scenario, scenario_params)
+        
+        # run model
+        model.run(init_seed=0)
 
 # run main function
 if __name__ == '__main__':

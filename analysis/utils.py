@@ -10,7 +10,7 @@ import matplotlib.ticker as mticker
 from numpy.typing import NDArray
 import statsmodels.api as sm
 
-def load_yaml(file: Path | str):
+def load_yaml(file: Path | str) -> dict:
     """
     Load YAML file as dictionary.
     

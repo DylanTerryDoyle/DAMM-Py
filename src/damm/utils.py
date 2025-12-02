@@ -2,7 +2,7 @@ import yaml
 import numpy as np
 from pathlib import Path
 
-def load_yaml(file: Path | str):
+def load_yaml(file: Path | str) -> dict:
     """
     Load YAML file as dictionary.
     
