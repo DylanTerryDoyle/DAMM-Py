@@ -1,5 +1,5 @@
 [project]
-name = "macroabm"
+name = "dammpy"
 version = "0.1.0"
 description = "A macroeconomic agent-based model to study the implications of zero-growth."
 readme = "README.md"

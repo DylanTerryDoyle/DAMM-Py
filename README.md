@@ -1,3 +1,2 @@
-# DAMM-ZG
-This repository keeps the code for the Dynamic Agent-based Model of the Macroeconomy for the study of Zero-Growth (DAMM-ZG).
-
+# DAMM-Py
+This repository keeps the code for the Python implementation of the Dynamic Agent-based Model of the Macroeconomy (DAMM-Py). The model is used to study the impact of zero-growth on the macroeconomy.
