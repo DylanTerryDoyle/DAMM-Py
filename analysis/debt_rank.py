@@ -1,10 +1,15 @@
-import os
 import sqlite3
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from pathlib import Path
 import matplotlib.pyplot as plt
 # add parent directory to system path
-from analysis.utils import load_parameters, bank_debtrank, expected_systemic_loss
+from analysis.utils import load_yaml, bank_debtrank, expected_systemic_loss
+
+### Custom Database Location ###
+
+DATABASE_PATH = "F:\\Documents 202507\\University\\University of Sussex\\BSc Dissertation\\Publishing\\MacroABM\\data"
 
 ### Plot Parameters ###
 
@@ -22,40 +27,59 @@ lower = 0.1
 
 ### Paths ###
 
-analysis_path = os.getcwd()
-parent_path = os.path.abspath(os.path.join(analysis_path, os.pardir))
-figure_path = f"{analysis_path}\\figures\\debt_rank"
-table_path = f"{analysis_path}\\tables"
+# current working directory path
+cwd_path = Path.cwd()
+# analysis path
+analysis_path = cwd_path / "analysis"
+# figure path
+figure_path = analysis_path / "figures" / "expected_systemic_loss"
+# create figure path if it doesn't exist
+figure_path.mkdir(parents=True, exist_ok=True)
+# parameters path 
+params_path = cwd_path / "src" / "macroabm" / "config" / "parameters.yaml"
 
-### load model parameters ###
+### parameters ###
 
 # parameters
-params = load_parameters(f'{parent_path}\\src\\parameters.yaml')
+params = load_yaml(params_path)
 # analysis parameters
 steps = params['simulation']['steps']
 start = params['simulation']['start']*steps
-end = (params['simulation']['start'] + params['simulation']['years'])*steps
-middle = int(end/2)
 years = np.linspace(0, params['simulation']['years'], params['simulation']['years']*steps)
 
-### paths to data ###
-data_path = params['database_path']
-databases = os.listdir(data_path)
+### Paths to Data ###
+
+# get database_path from parameters
+data_path = cwd_path / "data"
+# check if dynamically set database path exists
+if data_path.exists() and data_path.is_dir():
+    # get database names
+    database_paths = [f for f in data_path.iterdir() if f.is_file()]
+else:
+    # other wise use manual database path
+    data_path = Path(DATABASE_PATH)
+    try:
+        database_paths = [f for f in data_path.iterdir() if f.is_file()]
+    except FileNotFoundError as e:
+        # raise an error if neither exist
+        print(f"Error: no data folder with databases and no folder found at manual location {DATABASE_PATH}")
+        print(e)  # prints the original FileNotFoundError message
+        database_paths = []
 
 ### connect to sql database ###
 
 # database index
-for index in range(len(databases)):
-    # get database name
-    database_name = databases[index]
-    # suffix for saved file name
-    suffix = database_name[:-3]
+for database_path in database_paths:
+    # database suffix 
+    suffix = str(database_path.name)[:-3]
+    print(f"Analysing ESL for database {suffix}...")
     # create connection to database
-    con = sqlite3.connect(f"{data_path}\\{database_name}")
-    # create database cursor
-    cur = con.cursor()
+    con = sqlite3.connect(database_path)
 
+    ### Data for DebtRank ###
+    
     # get edges data
+    print("- Downloading credit network edge data...")
     edges = pd.read_sql_query(
         f"""
             SELECT *
@@ -68,7 +92,8 @@ for index in range(len(databases)):
         con
     )
 
-    # get edges data
+    # get macro data
+    print("- Downloading macro data...")
     macro = pd.read_sql_query(
         f"""
             SELECT *
@@ -81,7 +106,8 @@ for index in range(len(databases)):
         con
     )
 
-    # get edges data
+    # get bank data
+    print("- Downloading bank data...")
     banks = pd.read_sql_query(
         f"""
             SELECT *
@@ -104,14 +130,13 @@ for index in range(len(databases)):
     prob_default.rename(columns={"bankrupt": "prob_default"}, inplace=True)
 
     # join prob default to edges data
+    print("- Joining edge and bank probability of default...")
     edges = edges.merge(prob_default, left_on=["simulation", "source"], right_on=["simulation", "id"], how='left')
     edges.drop(columns=["id"], inplace=True)
 
-    # delete banks df (save memory)
-    del banks
-
     ### start debtrank calculation ###
 
+    print(f"- Calculating DebtRank & ESL for scenario {suffix}...")
     # number of simulations 
     num_sims = len(edges['simulation'].unique())
     # number of periods per simulation
@@ -119,7 +144,7 @@ for index in range(len(databases)):
     # array to hold expected systemic loss as a percentage of nominal GDP results
     esl_gdp = np.zeros(shape=(num_sims,num_periods))
     # simulation loop
-    for s in range(1):
+    for s in tqdm(range(num_sims)):
         # time period loop for simulation s
         for t in range(num_periods):
             # edge data for current time period
@@ -152,7 +177,7 @@ for index in range(len(databases)):
             esl_gdp[s,t] = esl/nominal_gdp
     
     ### save results ###
-    
+    print("- Saving results to CSV file")
     df_esl_gdp = pd.DataFrame(esl_gdp).to_csv(f"esl_gdp_{suffix}.csv")
     
     ### plot results ###
@@ -177,3 +202,10 @@ for index in range(len(databases)):
     # plt.ylim((-0.05, 1.35))
     # save figure
     plt.savefig(f'{figure_path}\\esl_{suffix}.png', bbox_inches='tight')
+
+    print(f"- Created plot of ESL/GDP for scenario {suffix}:")
+    print(f"  => {figure_path}")
+
+    ### Close Database Connection ###
+    
+    con.close()

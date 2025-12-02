@@ -5,7 +5,7 @@ import scipy.stats as stats
 import matplotlib.pyplot as plt
 from analysis.utils import load_yaml, load_macro_data, box_plot_scenarios
 
-### Path to database ###
+### Custom Database Location ###
 
 DATABASE_PATH = "F:\\Documents 202507\\University\\University of Sussex\\BSc Dissertation\\Publishing\\MacroABM\\data"
 
@@ -36,7 +36,7 @@ figure_path.mkdir(parents=True, exist_ok=True)
 # parameters path 
 params_path = cwd_path / "src" / "macroabm" / "config" / "parameters.yaml"
 
-### load model parameters ###
+### parameters ###
 
 # parameters
 params = load_yaml(params_path)
@@ -46,27 +46,28 @@ num_years = params['simulation']['years']
 start = params['simulation']['start']*steps
 years = np.linspace(0, num_years, num_years*steps)
 
-### paths to data ###
+### Paths to Data ###
+
 # get database_path from parameters
 data_path = cwd_path / "data"
 # check if dynamically set database path exists
 if data_path.exists() and data_path.is_dir():
     # get database names
-    databases_paths = [f for f in data_path.iterdir() if f.is_file()]
+    database_paths = [f for f in data_path.iterdir() if f.is_file()]
 else:
     # other wise use manual database path
     data_path = Path(DATABASE_PATH)
     try:
-        databases_paths = [f for f in data_path.iterdir() if f.is_file()]
+        database_paths = [f for f in data_path.iterdir() if f.is_file()]
     except FileNotFoundError as e:
         # raise an error if neither exist
         print(f"Error: no data folder with databases and no folder found at manual location {DATABASE_PATH}")
         print(e)  # prints the original FileNotFoundError message
-        databases_paths = []
+        database_paths = []
 
 ### start loop over databases ###
 
-for database_path in databases_paths:
+for database_path in database_paths:
     # database suffix 
     suffix = str(database_path.name)[:-3]
     print(f"Analysing results for database {suffix}...")
@@ -139,7 +140,7 @@ print("Creating box plots...")
 scenarios = ["G1", "G2", "ZG1", "ZG2"]
 
 # macro data for all scenarios
-macro_scenario_data = {scenario: load_macro_data(database_path, params, steps, start) for scenario, database_path in zip(scenarios, databases_paths)}
+macro_scenario_data = {scenario: load_macro_data(database_path, params, steps, start) for scenario, database_path in zip(scenarios, database_paths)}
 
 # figure settings
 xticks = [1, 2, 3, 4]

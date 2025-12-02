@@ -15,8 +15,7 @@ dependencies = [
     "tqdm",
     "numpy",
     "pandas",
-    "scikit-learn",
-    "numba"
+    "scikit-learn"
 ]
 
 # Optional: extra dependencies for analysis

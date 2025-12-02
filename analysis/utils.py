@@ -519,10 +519,10 @@ def bank_debtrank(
                 break
         
         ### calculate DebtRank ###
-        # bank-layer debtrank: exclude initially distressed bank
-        mask = np.arange(num_banks) != i
-        debtrank_bank[i] = np.sum(bank_distress[mask]*bank_assets[mask])/np.sum(bank_assets[mask])
-        # firm-layer debtrank: include all firms
+        # bank-layer debtrank for bank i: exclude initially distressed bank i
+        bank_mask = np.arange(num_banks) != i
+        debtrank_bank[i] = np.sum(bank_distress[bank_mask]*bank_assets[bank_mask])/np.sum(bank_assets[bank_mask])
+        # firm-layer debtrank for bank i: include all firms
         debtrank_firm[i] = np.sum(firm_distress*firm_assets)/np.sum(firm_assets)
 
     return debtrank_bank, debtrank_firm

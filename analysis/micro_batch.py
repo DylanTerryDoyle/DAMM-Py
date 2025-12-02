@@ -30,7 +30,7 @@ figure_path.mkdir(parents=True, exist_ok=True)
 # parameters path 
 params_path = cwd_path / "src" / "macroabm" / "config" / "parameters.yaml"
 
-### load model parameters ###
+### Parameters ###
 
 # parameters
 params = load_yaml(params_path)
@@ -40,6 +40,7 @@ num_years = params['simulation']['years']
 start = params['simulation']['start']*steps
 
 ### paths to data ###
+
 # get database_path from parameters
 data_path = cwd_path / "data"
 # check if dynamically set database path exists
