@@ -151,6 +151,10 @@ for index in range(len(databases)):
             # expected systemic loss as a percentage of nomnal GDP
             esl_gdp[s,t] = esl/nominal_gdp
     
+    ### save results ###
+    
+    df_esl_gdp = pd.DataFrame(esl_gdp).to_csv(f"esl_gdp_{suffix}.csv")
+    
     ### plot results ###
     
     # median esl over simulations
@@ -170,6 +174,6 @@ for index in range(len(databases)):
     plt.yticks(fontsize=fontsize)
     plt.xticks(fontsize=fontsize)
     # y limit
-    plt.ylim((-0.05, 1.35))
+    # plt.ylim((-0.05, 1.35))
     # save figure
     plt.savefig(f'{figure_path}\\esl_{suffix}.png', bbox_inches='tight')

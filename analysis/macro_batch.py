@@ -3,7 +3,7 @@ import pandas as pd
 from pathlib import Path
 import scipy.stats as stats
 import matplotlib.pyplot as plt
-from .utils import load_yaml, load_macro_data, box_plot_scenarios
+from analysis.utils import load_yaml, load_macro_data, box_plot_scenarios
 
 ### Path to database ###
 
@@ -135,15 +135,13 @@ for database_path in databases_paths:
 
 print("Creating box plots...")
 
+# scenario names
 scenarios = ["G1", "G2", "ZG1", "ZG2"]
 
-macro_scenario_data = dict()
+# macro data for all scenarios
+macro_scenario_data = {scenario: load_macro_data(database_path, params, steps, start) for scenario, database_path in zip(scenarios, databases_paths)}
 
-for scenario, database_path in zip(scenarios, databases_paths):
-    macro_scenario_data[scenario] = load_macro_data(database_path, params, steps, start)
-
-
-yticks = [0.01, 0.02, 0.03, 0.04, 0.05, 0.06]
+# figure settings
 xticks = [1, 2, 3, 4]
 colours = ['tab:blue', 'tab:blue', 'tab:green', 'tab:green']
 

@@ -6,10 +6,9 @@ import powerlaw as pl
 from scipy import stats
 from pathlib import Path
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 from numpy.typing import NDArray
-from matplotlib.collections import PolyCollection
 import statsmodels.api as sm
-from statsmodels.graphics import tsaplots
 
 def load_yaml(file: Path | str):
     """
@@ -39,7 +38,7 @@ def load_macro_data(path: Path | str, params: dict, steps: int, start: int):
     # year
     data['year'] = (data['time'] // steps).astype(int)
     # avg hpi
-    data['avg_hpi'] = (data['cfirm_hpi'] + data['kfirm_hpi'] + data['bank_hpi'])/3
+    data['avg_hpi'] = (data['cfirm_distresspi'] + data['kfirm_distresspi'] + data['bank_distresspi'])/3
     # avg nhhi
     data['avg_nhhi'] = (data['cfirm_nhhi'] + data['kfirm_nhhi'] + data['bank_nhhi'])/3
     # real gdp growth 
@@ -102,6 +101,16 @@ def load_macro_data(path: Path | str, params: dict, steps: int, start: int):
     con.close()
     return data
 
+def load_micro_data(query: str, path: Path | str) -> pd.DataFrame:
+    '''Load a table from the SQL database into a pandas DataFrame.'''
+    # create connection to database
+    con = sqlite3.connect(path)
+    # load table into pandas DataFrame
+    data = pd.read_sql_query(query, con)
+    # close database connection
+    con.close()
+    return data
+
 def box_plot_scenarios(
     plot_data: dict[str,pd.DataFrame], 
     variable: str,
@@ -112,7 +121,8 @@ def box_plot_scenarios(
     yticks: list[float] | None = None,
     ylim: tuple[float, float] | None = None,
     colours: list[str] | None = None,
-    figure_path: Path | str | None = None
+    figure_path: Path | str | None = None,
+    dp: int = 3
     ):
     
     ### create plot data ###
@@ -133,10 +143,49 @@ def box_plot_scenarios(
             patch.set_alpha(0.5)
             
     ### figure settings ###
+    # decimal places 
+    if yticks is not None:
+        plt.yticks(yticks, [f"{y:.{dp}f}" for y in yticks], fontsize=fontsize)
+    else:
+        plt.gca().yaxis.set_major_formatter(mticker.FormatStrFormatter(f'%.{dp}f'))
+    # y axis ticks
     plt.yticks(yticks, fontsize=fontsize)
+    # y axis limits
     plt.ylim(ylim)
+    # x axis ticks
     plt.xticks(xticks, xlabels, fontsize=fontsize)
+    # save figure
     plt.savefig(figure_path / f"box_plot_{variable}", bbox_inches='tight')
+    
+def large_ages(data: pd.DataFrame, q: float) -> pd.Series:
+    # calculate market share quantile 
+    ms_q = data['market_share'].quantile(q)
+    
+    # Get all market shares 
+    ages = data['age'][data['market_share'] >= ms_q]
+    # return age diffs
+    return ages, ms_q
+
+def small_ages(data: pd.DataFrame, q: float) -> pd.Series:
+    # calculate market share quantile 
+    ms_q = data['market_share'].quantile(q)
+    # Get all market shares 
+    ages = data['age'][data['market_share'] <= ms_q]
+    # return age diffs
+    return ages, ms_q
+
+def calculate_bank_age(bank_data: pd.DataFrame):
+    data = bank_data.copy()
+    # bankruptcy conditon
+    data['bankruptcy'] = data['min_capital_ratio']*(data['loans'] + data['reserves']) == data['equity']
+    # reset 
+    data["reset"] = (data.groupby(["simulation", "id"])["bankruptcy"].cumsum())
+    # Within each (simulation, id, reset) segment, count observations since last bankruptcy
+    data["age_quarters"] = (data.groupby(["simulation", "id", "reset"]).cumcount() + 1)
+    # Convert quarters to years (each observation = 0.25 years)
+    data["age"] = data["age_quarters"] * 0.25
+    # return results 
+    return data['age']
 
 def logscale_ticks(low: float, high: float, num: int) -> np.ndarray:
     """
@@ -378,6 +427,8 @@ def bank_debtrank(
         W_firms: NDArray[np.float64],        # shape (num_firms, num_banks)
         bank_assets: NDArray[np.float64],    # shape (num_banks,)
         firm_assets: NDArray[np.float64],    # shape (num_firms,)
+        num_banks: int,
+        num_firms: int,
         max_iterations: int = 500,
         epsilon: float = 1e-8
     ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
@@ -417,94 +468,72 @@ def bank_debtrank(
             
     Returns
     -------
-        (bank_dr, firm_dr) : tuple(NDArray[Float64], NDArray[float64])
+        (debtrank_bank, debtrank_firm) : tuple(NDArray[Float64], NDArray[float64])
             a tuple of bank DebtRanks and firm DebtRanks when each bank becomes bankrupt
     """
-    num_banks = len(bank_assets)
-    num_firms = len(firm_assets)
-    
-    bank_index = np.arange(num_banks)
-
-    # total assets
-    total_bank_assets = np.sum(bank_assets)
-    total_firm_assets = np.sum(firm_assets)
-
-    bank_dr = np.zeros(num_banks, dtype=np.float64)
-    firm_dr = np.zeros(num_banks, dtype=np.float64)
+    debtrank_bank = np.zeros(num_banks, dtype=np.float64)
+    debtrank_firm = np.zeros(num_banks, dtype=np.float64)
 
     for i in range(num_banks):
-        # initialize distress vectors
+        # initialise distress and state variables
         bank_distress = np.zeros(num_banks, dtype=np.float64)
         firm_distress = np.zeros(num_firms, dtype=np.float64)
-
-        # initialize states: 0=U (undistressed), 1=D (distressed), 2=I (inactive)
         bank_state = np.zeros(num_banks, dtype=np.int8)
         firm_state = np.zeros(num_firms, dtype=np.int8)
 
-        # initial shock: bank i bankrupt
+        # initial shock: bank i distressed (bankrupt)
         bank_distress[i] = 1.0
-        bank_state[i] = 1  # Distressed (D)
-        
-        # initial distressed bank mask
-        bank_mask = bank_index != i
-
-        # initial previous total for convergence
-        prev_total = 1.0
+        bank_state[i] = 1
 
         for _ in range(max_iterations):
-            ### propagate banks distress to firms ###
-            # mask for distressed banks
+            # record previous distress for convergence check
+            prev_total = np.sum(bank_distress) + np.sum(firm_distress)
+
+            ### update distress ###
+            # calculate new firm distress from currently distressed banks
             distressed_banks = (bank_state == 1).astype(np.float64)
-            # update firm distress
-            firm_distress = np.minimum(1.0, firm_distress + W_firms@(distressed_banks*bank_distress))
-            # mark newly distressed firms
-            firm_state[(firm_distress > 0) & (firm_state == 0)] = 1
+            firm_distress_new = np.minimum(1.0, firm_distress + W_firms@(distressed_banks*bank_distress))
 
-            ### propagate firms distress to banks ###
-            # mask for distressed firms
+            # calculate new bank distress from currently distressed firms
             distressed_firms = (firm_state == 1).astype(np.float64)
-            # update bank distress
-            bank_distress = np.minimum(1.0, bank_distress + W_banks@(distressed_firms*firm_distress))
-            # mark newly distressed banks
-            bank_state[(bank_distress > 0) & (bank_state == 0)] = 1
+            bank_distress_new = np.minimum(1.0, bank_distress + W_banks@(distressed_firms*firm_distress))
 
-            ### update banks states ###
-            # distressed banks to inactive 
-            bank_state[bank_state == 1] = 2
-            # distressed firms to inactive 
+            ### update states ###
+            # undistressed firms to distressed (U -> D)
+            firm_state[(firm_distress_new > 0) & (firm_state == 0)] = 1
+            # distressed firms to inactive (D -> I)
             firm_state[firm_state == 1] = 2
+            # update firm distress
+            firm_distress = firm_distress_new
 
-            ### check convergence ### 
+            # undistressed banks to distressed (U -> D)
+            bank_state[(bank_distress_new > 0) & (bank_state == 0)] = 1
+            # distressed banks to inactive (D -> I)
+            bank_state[bank_state == 1] = 2
+            # update bank distress
+            bank_distress = bank_distress_new
+
+            ### check convergence ###
             total = np.sum(bank_distress) + np.sum(firm_distress)
-            # break loop if converged
             if abs(total - prev_total) < epsilon:
                 break
-            # update previous total for convergence check
-            prev_total = total
+        
+        ### calculate DebtRank ###
+        # bank-layer debtrank: exclude initially distressed bank
+        mask = np.arange(num_banks) != i
+        debtrank_bank[i] = np.sum(bank_distress[mask]*bank_assets[mask])/np.sum(bank_assets[mask])
+        # firm-layer debtrank: include all firms
+        debtrank_firm[i] = np.sum(firm_distress*firm_assets)/np.sum(firm_assets)
 
-        ### compute DebtRank ### 
-        # total banks assets less initial distressed bank i
-        total_banks_assets_less_i = total_bank_assets - bank_assets[i]
-        # 
-        if total_banks_assets_less_i > 0:
-            bank_dr[i] = np.sum(bank_distress[bank_mask]*bank_assets[bank_mask])/total_banks_assets_less_i
-        else:
-            bank_dr[i] = 0.0
-
-        if total_firm_assets > 0:
-            firm_dr[i] = np.sum(firm_distress*firm_assets)/total_firm_assets
-        else:
-            firm_dr[i] = 0.0
-
-    return bank_dr, firm_dr
+    return debtrank_bank, debtrank_firm
 
 def expected_systemic_loss(
-    bank_dr: np.typing.NDArray[np.float64],
-    firm_dr: np.typing.NDArray[np.float64],
-    prob_default: np.typing.NDArray[np.float64],
-    bank_assets: np.typing.NDArray[np.float64],
-    firm_assets: np.typing.NDArray[np.float64]
-) -> float:
+        debtrank_bank: np.typing.NDArray[np.float64],
+        debtrank_firm: np.typing.NDArray[np.float64],
+        prob_default: np.typing.NDArray[np.float64],
+        bank_assets: np.typing.NDArray[np.float64],
+        firm_assets: np.typing.NDArray[np.float64]
+    ) -> float:
     """
     Description
     -----------
@@ -519,10 +548,10 @@ def expected_systemic_loss(
     
     Parameters
     ----------
-        bank_dr : NDArray[float64]
+        debtrank_bank : NDArray[float64]
             bank DebtRank 
             
-        firm_dr : NDArray[float64]
+        debtrank_firm : NDArray[float64]
             firm DebtRank
             
         prob_default : NDArray[float64]
@@ -544,7 +573,7 @@ def expected_systemic_loss(
     total_firm_assets = np.sum(firm_assets)
 
     # expected systemic loss approximation (ESL)
-    esl = np.sum(prob_default*(bank_dr*total_bank_assets + firm_dr*total_firm_assets))
+    esl = np.sum(prob_default*(debtrank_bank*total_bank_assets + debtrank_firm*total_firm_assets))
 
     # return esl calculation
     return esl
