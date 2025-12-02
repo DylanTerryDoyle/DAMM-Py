@@ -1,3 +1,4 @@
+
 import sqlite3
 from pathlib import Path
 from damm.model import Model
@@ -13,7 +14,7 @@ def main():
     # current working directory
     cwd_path = Path.cwd()
     # parameters path 
-    params_path = cwd_path / "src" / "parameters.yaml"
+    params_path = cwd_path / "src" / "config" / "parameters.yaml"
 
 
     ### load model parameters ###

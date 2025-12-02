@@ -1,3 +1,4 @@
+### Import Libraries ###
 import copy
 import sqlite3
 import numpy as np
@@ -6,8 +7,14 @@ from tqdm import tqdm
 from pathlib import Path
 from numpy.typing import NDArray
 from sklearn.linear_model import LogisticRegression
-from agents import Bank, Household, ConsumptionFirm, CapitalFirm
 
+### Import Agents ###
+from damm.agents.bank import Bank
+from damm.agents.household import Household
+from damm.agents.capital_firm import CapitalFirm
+from damm.agents.consumption_firm import ConsumptionFirm
+
+### Model Class ###
 class Model:
     
     """
